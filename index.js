@@ -813,12 +813,14 @@ bot.action(/remove_admin_list_(\d+)/, async (ctx) => {
     }
     let text = `**${t('select_user_remove', lang)}**\n\n`;
     pageAdmins.forEach((a, i) => {
-      text += `${(page - 1) * 10 + i + 1}. ${escMd(a.firstName) || 'N/A'} (@${escMd(a.telegramUsername) || 'N/A'}) – ${t('id_label', lang)} \`${a.telegramId}\`\n`;
+      const left = `${(page - 1) * 10 + i + 1}. ${escMd(a.firstName) || 'N/A'} (@${escMd(a.telegramUsername) || 'N/A'})`;
+      const spaces = ' '.repeat(Math.max(2, 40 - left.length));
+      text += `${left}${spaces}${t('id_label', lang)} \`${a.telegramId}\`\n`;
     });
     const btns = pageAdmins.map(a => {
       const name = a.firstName || a.telegramId;
       const removeText = `❌ ${t('remove_btn', lang)}`;
-      const padding = ' '.repeat(Math.max(2, 20 - removeText.length));
+      const padding = ' '.repeat(Math.max(2, 50 - removeText.length - name.length));
       return [Markup.button.callback(`${removeText}${padding}${name}`, `remove_buyer_${a.telegramId}`)];
     });
     if (totalPages > 1) {
@@ -851,12 +853,14 @@ bot.action(/remove_my_user_list_(\d+)/, async (ctx) => {
     }
     let text = `**${t('select_user_remove', lang)}**\n\n`;
     pageUsers.forEach((u, i) => {
-      text += `${(page - 1) * 10 + i + 1}. ${escMd(u.firstName) || 'N/A'} (@${escMd(u.telegramUsername) || 'N/A'}) – ${t('id_label', lang)} \`${u.telegramId}\`\n`;
+      const left = `${(page - 1) * 10 + i + 1}. ${escMd(u.firstName) || 'N/A'} (@${escMd(u.telegramUsername) || 'N/A'})`;
+      const spaces = ' '.repeat(Math.max(2, 40 - left.length));
+      text += `${left}${spaces}${t('id_label', lang)} \`${u.telegramId}\`\n`;
     });
     const btns = pageUsers.map(u => {
       const name = u.firstName || u.telegramId;
       const removeText = `❌ ${t('remove_btn', lang)}`;
-      const padding = ' '.repeat(Math.max(2, 20 - removeText.length));
+      const padding = ' '.repeat(Math.max(2, 50 - removeText.length - name.length));
       return [Markup.button.callback(`${removeText}${padding}${name}`, `remove_my_sub_${u.telegramId}`)];
     });
     if (totalPages > 1) {
@@ -905,7 +909,9 @@ bot.action('remove_user_under_admin', async (ctx) => {
     }
     let text = '**Select the admin whose user you want to remove:**\n\n';
     pageAdmins.forEach((a, i) => {
-      text += `${i + 1}. ${escMd(a.firstName) || 'N/A'} (@${escMd(a.telegramUsername) || 'N/A'}) – ID: \`${a.telegramId}\`\n`;
+      const left = `${i + 1}. ${escMd(a.firstName) || 'N/A'} (@${escMd(a.telegramUsername) || 'N/A'})`;
+      const spaces = ' '.repeat(Math.max(2, 40 - left.length));
+      text += `${left}${spaces}ID: \`${a.telegramId}\`\n`;
     });
     const btns = pageAdmins.map(a => [Markup.button.callback(`${a.firstName || a.telegramId}`, `remove_under_admin_${a.telegramId}_1`)]);
     const lang = ctx.state.user?.language || 'en';
@@ -938,12 +944,14 @@ bot.action(/remove_under_admin_(\d+)_(\d+)/, async (ctx) => {
     }
     let text = `**Remove user under ${escMd(admin.firstName) || admin.telegramId}:**\n\n`;
     pageUsers.forEach((u, i) => {
-      text += `${(page - 1) * 10 + i + 1}. ${escMd(u.firstName) || 'N/A'} (@${escMd(u.telegramUsername) || 'N/A'})\n`;
+      const left = `${(page - 1) * 10 + i + 1}. ${escMd(u.firstName) || 'N/A'} (@${escMd(u.telegramUsername) || 'N/A'})`;
+      const spaces = ' '.repeat(Math.max(2, 40 - left.length));
+      text += `${left}${spaces}ID: \`${u.telegramId}\`\n`;
     });
     const btns = pageUsers.map(u => {
       const name = u.firstName || u.telegramId;
       const removeText = `❌ ${t('remove_btn', lang)}`;
-      const padding = ' '.repeat(Math.max(2, 20 - removeText.length));
+      const padding = ' '.repeat(Math.max(2, 50 - removeText.length - name.length));
       return [Markup.button.callback(`${removeText}${padding}${name}`, `remove_sub_${adminId}_${u.telegramId}`)];
     });
     const lang = ctx.state.user?.language || 'en';
@@ -970,7 +978,9 @@ bot.action(/remove_under_admin_list_(\d+)/, async (ctx) => {
     const { items: pageAdmins, page: p, totalPages } = paginate(admins, page);
     let text = '**Select the admin whose user you want to remove:**\n\n';
     pageAdmins.forEach((a, i) => {
-      text += `${(page - 1) * 10 + i + 1}. ${escMd(a.firstName) || 'N/A'} (@${escMd(a.telegramUsername) || 'N/A'}) – ID: \`${a.telegramId}\`\n`;
+      const left = `${(page - 1) * 10 + i + 1}. ${escMd(a.firstName) || 'N/A'} (@${escMd(a.telegramUsername) || 'N/A'})`;
+      const spaces = ' '.repeat(Math.max(2, 40 - left.length));
+      text += `${left}${spaces}ID: \`${a.telegramId}\`\n`;
     });
     const btns = pageAdmins.map(a => [Markup.button.callback(`${a.firstName || a.telegramId}`, `remove_under_admin_${a.telegramId}_1`)]);
     const lang = ctx.state.user?.language || 'en';
@@ -1014,7 +1024,7 @@ bot.action(/subusers_(\d+)/, async (ctx) => {
     const buttons = subs.map(sub => {
       const name = displayName(sub);
       const removeText = `❌ ${t('remove_btn', lang)}`;
-      const padding = ' '.repeat(Math.max(2, 20 - removeText.length));
+      const padding = ' '.repeat(Math.max(2, 50 - removeText.length - name.length));
       return [Markup.button.callback(`${removeText}${padding}${name}`, `remove_sub_${buyerId}_${sub.telegramId}`)];
     });
     buttons.push([Markup.button.callback('🔙 ' + t('back', lang), 'dashboard_buyer')]);
@@ -1202,7 +1212,7 @@ async function handleManageUsers(ctx, isInline) {
     const title = t('admin_management', lang) + '\n\n';
     const sub = `${t('admin_label', lang)} ${escMd(user.firstName) || 'N/A'} (@${escMd(user.telegramUsername) || 'N/A'}\n${t('id_label', lang)} \`${user.telegramId}\`\n\n`;
 
-    const pad = (text, emoji, targetLen = 30) => {
+    const pad = (text, emoji, targetLen = 45) => {
       const spaces = ' '.repeat(Math.max(2, targetLen - text.length));
       return `${text}${spaces}${emoji}`;
     };
@@ -1286,7 +1296,7 @@ bot.action('view_pending', async (ctx) => {
       text += `\n_Use Add Buyer and enter their Telegram ID to add them._`;
     }
     const lang = ctx.state.user?.language || 'en';
-    const pad = (text, emoji, targetLen = 20) => {
+    const pad = (text, emoji, targetLen = 45) => {
       const spaces = ' '.repeat(Math.max(2, targetLen - text.length));
       return `${text}${spaces}${emoji}`;
     };
