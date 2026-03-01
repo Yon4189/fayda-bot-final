@@ -589,9 +589,23 @@ async function adminGuard(ctx) {
 }
 
 
+// ---------- Menu Management Helpers ----------
+async function clearOldMenu(ctx) {
+  if (ctx.session && ctx.session.menuMessageId) {
+    try {
+      await ctx.telegram.deleteMessage(ctx.chat.id, ctx.session.menuMessageId);
+    } catch (e) {
+      // Message might already be deleted or too old
+      logger.debug('Failed to delete old menu message:', e.message);
+    }
+    ctx.session.menuMessageId = null;
+  }
+}
+
 // ---------- Start Command – Show Reply Keyboard ----------
 bot.start(async (ctx) => {
   try {
+    await clearOldMenu(ctx);
     ctx.session = ctx.session || {};
     ctx.session.step = null;
     const user = ctx.state.user;
@@ -614,10 +628,14 @@ bot.start(async (ctx) => {
     }
 
     const title = getPanelTitle(user.role, lang);
-    await ctx.reply(title, {
+    const sentMsg = await ctx.reply(title, {
       parse_mode: 'Markdown',
       ...getReplyKeyboard(user.role, lang)
     });
+    // For start, we only track if it also sends the inline menu (via getMainMenu usually, but start sends reply keyboard)
+    // Actually, user wants any menu to disappear. Let's track the welcome msg if it's the main entry.
+    // However, bot.start usually just sends the reply keyboard which stays at bottom.
+    // The user's request specifically mentions Manage Users, Dashboard, and Language menus.
   } catch (error) {
     logger.error('Start command error:', error);
     const lang = ctx.state.user?.language || 'en';
@@ -1079,7 +1097,9 @@ async function handleDashboard(ctx, isInline, page = 1) {
   if (isInline) {
     await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: keyboard } });
   } else {
-    await ctx.reply(text, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: keyboard } });
+    await clearOldMenu(ctx);
+    const sentMsg = await ctx.reply(text, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: keyboard } });
+    if (ctx.session) ctx.session.menuMessageId = sentMsg.message_id;
   }
 }
 
@@ -1125,7 +1145,9 @@ async function handleUserDashboard(ctx, isInline) {
   if (isInline) {
     await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: keyboard } });
   } else {
-    await ctx.reply(text, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: keyboard } });
+    await clearOldMenu(ctx);
+    const sentMsg = await ctx.reply(text, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: keyboard } });
+    if (ctx.session) ctx.session.menuMessageId = sentMsg.message_id;
   }
 }
 
@@ -1222,10 +1244,14 @@ async function handleManageUsers(ctx, isInline) {
         await ctx.editMessageText(title + sub, { parse_mode: 'Markdown', ...keyboard });
       } catch (editErr) {
         logger.warn('manage_users editMessageText failed:', editErr.message);
-        await ctx.reply(title + sub, { parse_mode: 'Markdown', ...keyboard });
+        await clearOldMenu(ctx);
+        const sentMsg = await ctx.reply(title + sub, { parse_mode: 'Markdown', ...keyboard });
+        if (ctx.session) ctx.session.menuMessageId = sentMsg.message_id;
       }
     } else {
-      await ctx.reply(title + sub, { parse_mode: 'Markdown', ...keyboard });
+      await clearOldMenu(ctx);
+      const sentMsg = await ctx.reply(title + sub, { parse_mode: 'Markdown', ...keyboard });
+      if (ctx.session) ctx.session.menuMessageId = sentMsg.message_id;
     }
     return;
   }
@@ -1657,11 +1683,14 @@ bot.on('text', async (ctx) => {
       ctx.session.step = null;
 
       if (isLanguage) {
+        await clearOldMenu(ctx);
         const titleSelection = t('lang_select', lang);
-        return ctx.reply(titleSelection, Markup.inlineKeyboard([
+        const sentMsg = await ctx.reply(titleSelection, Markup.inlineKeyboard([
           [Markup.button.callback('English 🇺🇸', 'set_lang_en'), Markup.button.callback('Amharic 🇪🇹', 'set_lang_am')],
           [Markup.button.callback('Afaan-Oromo 🌳', 'set_lang_om')]
         ]));
+        if (ctx.session) ctx.session.menuMessageId = sentMsg.message_id;
+        return;
       }
 
       if (isManage) {
