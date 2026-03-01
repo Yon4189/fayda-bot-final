@@ -1034,7 +1034,11 @@ async function handleDashboard(ctx, isInline, page = 1) {
 
   const keyboard = [];
   pageSubs.forEach((sub, i) => {
-    const label = `${(p - 1) * 10 + i + 1}. ${escMd(sub.firstName) || 'N/A'} (@${escMd(sub.telegramUsername) || 'N/A'}) ${t('total_pdfs', lang)} ${sub.downloadCount || 0}`;
+    const name = (sub.firstName || 'N/A').slice(0, 15);
+    // Use spaces to push "Total PDFs" to the right. Telegram font is variable-width,
+    // so we use a reasonable fixed-width padding with multiple spaces.
+    const padding = ' '.repeat(Math.max(2, 20 - name.length));
+    const label = `${(p - 1) * 10 + i + 1}. ${name}${padding}${t('total_pdfs', lang)} ${sub.downloadCount || 0}`;
     keyboard.push([Markup.button.callback(label, `detail_user_${sub.telegramId}`)]);
   });
 
@@ -1133,7 +1137,7 @@ bot.action(/detail_user_(\d+)/, async (ctx) => {
       text += `${date}\n   ${t('total_pdfs_downloaded_today', lang)} ${count}\n`;
     });
 
-    const keyboard = [[Markup.button.callback('🔙 ' + t('back', lang), 'dashboard_buyer')]];
+    const keyboard = [[Markup.button.callback(t('back', lang), 'dashboard_buyer')]];
     await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: keyboard } });
   } catch (error) {
     logger.error('Detail user error:', error);
