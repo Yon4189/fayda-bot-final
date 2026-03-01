@@ -815,7 +815,12 @@ bot.action(/remove_admin_list_(\d+)/, async (ctx) => {
     pageAdmins.forEach((a, i) => {
       text += `${(page - 1) * 10 + i + 1}. ${escMd(a.firstName) || 'N/A'} (@${escMd(a.telegramUsername) || 'N/A'}) – ${t('id_label', lang)} \`${a.telegramId}\`\n`;
     });
-    const btns = pageAdmins.map(a => [Markup.button.callback(t('remove_btn', lang).replace('{name}', escMd(a.firstName) || a.telegramId), `remove_buyer_${a.telegramId}`)]);
+    const btns = pageAdmins.map(a => {
+      const name = a.firstName || a.telegramId;
+      const removeText = `❌ ${t('remove_btn', lang)}`;
+      const padding = ' '.repeat(Math.max(2, 20 - removeText.length));
+      return [Markup.button.callback(`${removeText}${padding}${name}`, `remove_buyer_${a.telegramId}`)];
+    });
     if (totalPages > 1) {
       const row = [];
       if (p > 1) row.push(Markup.button.callback('⏮️ ' + t('back', lang), `remove_admin_list_${p - 1}`));
@@ -848,7 +853,12 @@ bot.action(/remove_my_user_list_(\d+)/, async (ctx) => {
     pageUsers.forEach((u, i) => {
       text += `${(page - 1) * 10 + i + 1}. ${escMd(u.firstName) || 'N/A'} (@${escMd(u.telegramUsername) || 'N/A'}) – ${t('id_label', lang)} \`${u.telegramId}\`\n`;
     });
-    const btns = pageUsers.map(u => [Markup.button.callback(t('remove_btn', lang).replace('{name}', escMd(u.firstName) || u.telegramId), `remove_my_sub_${u.telegramId}`)]);
+    const btns = pageUsers.map(u => {
+      const name = u.firstName || u.telegramId;
+      const removeText = `❌ ${t('remove_btn', lang)}`;
+      const padding = ' '.repeat(Math.max(2, 20 - removeText.length));
+      return [Markup.button.callback(`${removeText}${padding}${name}`, `remove_my_sub_${u.telegramId}`)];
+    });
     if (totalPages > 1) {
       const row = [];
       if (p > 1) row.push(Markup.button.callback('⏮️ ' + t('back', lang), `remove_my_user_list_${p - 1}`));
@@ -930,7 +940,12 @@ bot.action(/remove_under_admin_(\d+)_(\d+)/, async (ctx) => {
     pageUsers.forEach((u, i) => {
       text += `${(page - 1) * 10 + i + 1}. ${escMd(u.firstName) || 'N/A'} (@${escMd(u.telegramUsername) || 'N/A'})\n`;
     });
-    const btns = pageUsers.map(u => [Markup.button.callback(`❌ ${escMd(u.firstName) || u.telegramId}`, `remove_sub_${adminId}_${u.telegramId}`)]);
+    const btns = pageUsers.map(u => {
+      const name = u.firstName || u.telegramId;
+      const removeText = `❌ ${t('remove_btn', lang)}`;
+      const padding = ' '.repeat(Math.max(2, 20 - removeText.length));
+      return [Markup.button.callback(`${removeText}${padding}${name}`, `remove_sub_${adminId}_${u.telegramId}`)];
+    });
     const lang = ctx.state.user?.language || 'en';
     if (totalPages > 1) {
       const row = [];
@@ -995,8 +1010,14 @@ bot.action(/subusers_(\d+)/, async (ctx) => {
       text += `   ID: \`${sub.telegramId}\` | PDFs: ${sub.downloadCount || 0}\n`;
     });
 
-    const buttons = subs.map(sub => [Markup.button.callback(`❌ Remove ${displayName(sub)}`, `remove_sub_${buyerId}_${sub.telegramId}`)]);
-    buttons.push([Markup.button.callback('🔙 Back to Dashboard', 'dashboard_buyer')]);
+    const lang = ctx.state.user?.language || 'en';
+    const buttons = subs.map(sub => {
+      const name = displayName(sub);
+      const removeText = `❌ ${t('remove_btn', lang)}`;
+      const padding = ' '.repeat(Math.max(2, 20 - removeText.length));
+      return [Markup.button.callback(`${removeText}${padding}${name}`, `remove_sub_${buyerId}_${sub.telegramId}`)];
+    });
+    buttons.push([Markup.button.callback('🔙 ' + t('back', lang), 'dashboard_buyer')]);
     await ctx.editMessageText(text, { parse_mode: 'Markdown', reply_markup: { inline_keyboard: buttons } });
   } catch (error) {
     logger.error('Sub users view error:', error);
@@ -1179,11 +1200,17 @@ async function handleManageUsers(ctx, isInline) {
 
   if (user.role === 'admin') {
     const title = t('admin_management', lang) + '\n\n';
-    const sub = `${t('admin_label', lang)} ${escMd(user.firstName) || 'N/A'} (@${escMd(user.telegramUsername) || 'N/A'})\n${t('id_label', lang)} \`${user.telegramId}\`\n\n`;
+    const sub = `${t('admin_label', lang)} ${escMd(user.firstName) || 'N/A'} (@${escMd(user.telegramUsername) || 'N/A'}\n${t('id_label', lang)} \`${user.telegramId}\`\n\n`;
+
+    const pad = (text, emoji, targetLen = 30) => {
+      const spaces = ' '.repeat(Math.max(2, targetLen - text.length));
+      return `${text}${spaces}${emoji}`;
+    };
+
     const keyboard = Markup.inlineKeyboard([
-      [Markup.button.callback(t('view_my_users', lang), 'view_my_users_page_1')],
-      [Markup.button.callback(t('add_user', lang), 'add_sub_self')],
-      [Markup.button.callback(t('remove_user', lang), 'remove_my_user_list_1')]
+      [Markup.button.callback(pad(t('view_my_users', lang), '🔍'), 'view_my_users_page_1')],
+      [Markup.button.callback(pad(t('add_user', lang), '➕'), 'add_sub_self')],
+      [Markup.button.callback(pad(t('remove_user', lang), '🗑'), 'remove_my_user_list_1')]
     ]);
     if (isInline) {
       try {
@@ -1222,7 +1249,8 @@ bot.action('add_buyer', async (ctx) => {
     await ctx.answerCbQuery();
     if (!(await adminGuard(ctx))) return;
     ctx.session = { ...ctx.session, step: 'AWAITING_BUYER_ID' };
-    const keyboard = Markup.inlineKeyboard([[Markup.button.callback('🔙 Cancel', 'manage_users')]]);
+    const lang = ctx.state.user?.language || 'en';
+    const keyboard = Markup.inlineKeyboard([[Markup.button.callback('🔙 ' + t('back', lang), 'manage_users')]]);
     await ctx.editMessageText(
       '📝 **Add Admin**\n\nSend the **Telegram ID** of the person (e.g. \`5434080792\`).\n\n_They must have sent /start first. Default 30 days access. Cancel to go back._',
       { parse_mode: 'Markdown', ...keyboard }
@@ -1257,9 +1285,14 @@ bot.action('view_pending', async (ctx) => {
       });
       text += `\n_Use Add Buyer and enter their Telegram ID to add them._`;
     }
+    const lang = ctx.state.user?.language || 'en';
+    const pad = (text, emoji, targetLen = 20) => {
+      const spaces = ' '.repeat(Math.max(2, targetLen - text.length));
+      return `${text}${spaces}${emoji}`;
+    };
     const keyboard = Markup.inlineKeyboard([
-      [Markup.button.callback('➕ Add Admin', 'add_buyer')],
-      [Markup.button.callback('🔙 Back to Users', 'manage_users')]
+      [Markup.button.callback(pad(t('add_buyer', lang) || 'Add Admin', '➕'), 'add_buyer')],
+      [Markup.button.callback('🔙 ' + t('back', lang), 'manage_users')]
     ]);
     await ctx.editMessageText(text, { parse_mode: 'Markdown', ...keyboard });
   } catch (error) {
@@ -1298,11 +1331,17 @@ bot.action(/select_admin_(\d+)/, async (ctx) => {
       text += `   ID: \`${sub.telegramId}\` | PDFs: ${sub.downloadCount || 0}\n`;
     });
 
+    const lang = ctx.state.user?.language || 'en';
+    const pad = (text, emoji, targetLen = 25) => {
+      const spaces = ' '.repeat(Math.max(2, targetLen - text.length));
+      return `${text}${spaces}${emoji}`;
+    };
+
     const buttons = [
-      [Markup.button.callback('➕ Add Sub‑User', `add_sub_admin_${adminId}`)],
-      [Markup.button.callback('❌ Remove Sub‑User', `remove_sub_admin_${adminId}`)],
-      [Markup.button.callback('🗑 Remove Admin', `remove_buyer_${adminId}`)],
-      [Markup.button.callback('🔙 Back to Users', 'manage_users')]
+      [Markup.button.callback(pad(t('add_user', lang), '➕'), `add_sub_admin_${adminId}`)],
+      [Markup.button.callback(pad(t('remove_user', lang), '❌'), `remove_sub_admin_${adminId}`)],
+      [Markup.button.callback(pad(t('remove_admin', lang), '🗑'), `remove_buyer_${adminId}`)],
+      [Markup.button.callback('🔙 ' + t('back', lang), 'manage_users')]
     ];
     await ctx.editMessageText(text, {
       parse_mode: 'Markdown',
