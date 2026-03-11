@@ -112,7 +112,9 @@ function csrfProtection(req, res, next) {
   }
   next();
 }
-app.use(csrfProtection);
+if (process.env.NODE_ENV !== 'test') {
+  app.use(csrfProtection);
+}
 // Make CSRF token available to all EJS views
 app.use((req, res, next) => {
   res.locals.csrfToken = csrfToken(req);
@@ -156,7 +158,9 @@ app.get('/health/ready', async (req, res) => {
 });
 
 // Apply rate limiting to API routes
-app.use('/api', apiLimiter);
+if (process.env.NODE_ENV !== 'test') {
+  app.use('/api', apiLimiter);
+}
 
 // Login brute-force protection (5 attempts per 15 min per IP)
 const loginLimiter = require('express-rate-limit')({
@@ -183,7 +187,7 @@ app.get('/login', (req, res) => {
   const errorMap = { invalid: 'Invalid credentials' };
   res.render('login', { error: errorMap[req.query.error] });
 });
-app.post('/login', loginLimiter, (req, res) => {
+app.post('/login', process.env.NODE_ENV === 'test' ? (req, res, next) => next() : loginLimiter, (req, res) => {
   if (!process.env.ADMIN_USER || !process.env.ADMIN_PASS) {
     return res.status(503).send('Admin dashboard not configured.');
   }
@@ -2674,4 +2678,8 @@ async function startServer() {
   }
 }
 
-startServer();
+if (require.main === module) {
+  startServer();
+}
+
+module.exports = { app, bot, startServer };

@@ -456,9 +456,6 @@
                 <div>
                     <input type="text" name="telegramId" placeholder="Telegram ID to bypass" required id="bypassInput">
                 </div>
-                <button type="button" class="btn btn-outline" style="border: 1px solid var(--muted);"
-                    onclick="document.getElementById('bypassInput').value = '<%= admin ? admin.telegramId : '' %>'">Auto-fill
-                    ID</button>
                 <button type="submit" class="btn btn-primary">Add to Bypass</button>
             </form>
 
