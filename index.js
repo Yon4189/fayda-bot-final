@@ -25,6 +25,7 @@ const { Markup } = require('telegraf');
 const bot = require('./bot');
 const User = require('./models/User');
 const Broadcast = require('./models/Broadcast');
+const Settings = require('./models/Settings');
 // auth middleware removed — authorization is handled inline in bot.use()
 const { connectDB, disconnectDB } = require('./config/database');
 const { apiLimiter, checkUserRateLimit } = require('./utils/rateLimiter');
@@ -233,11 +234,62 @@ app.get('/dashboard', requireWebAuth, asyncHandler(async (req, res) => {
     const archived = b.archivedSubDownloads || 0;
     return { ...b, subDownloads, archived, totalDownloads: (b.downloadCount || 0) + subDownloads + archived };
   });
-  res.render('dashboard', { stats, admins: enriched, error: req.query.error });
+
+  // Get maintenance setting
+  let maintenance = await Settings.findOne({ key: 'maintenance' }).lean();
+  if (!maintenance) {
+    maintenance = { enabled: false, allowedUsers: [] };
+  }
+
+  res.render('dashboard', { stats, admins: enriched, maintenance, error: req.query.error });
 }));
 app.get('/pending', requireWebAuth, asyncHandler(async (req, res) => {
   const pending = await User.find({ role: 'unauthorized' }).sort({ lastActive: -1 }).limit(50).lean();
   res.render('pending', { pending });
+}));
+
+// ---------- Maintenance Mode ----------
+app.post('/maintenance/toggle', requireWebAuth, asyncHandler(async (req, res) => {
+  let setting = await Settings.findOne({ key: 'maintenance' });
+  if (!setting) {
+    setting = new Settings({ key: 'maintenance' });
+  }
+  setting.enabled = !setting.enabled;
+  await setting.save();
+
+  // If disabled, automatically notify all active users
+  if (!setting.enabled) {
+    const activeUsers = await User.find({ role: { $ne: 'unauthorized' } }).select('telegramId language').lean();
+    for (const u of activeUsers) {
+      try {
+        const uLang = u.language || 'en';
+        await bot.telegram.sendMessage(u.telegramId, t('maintenance_off_msg', uLang), { parse_mode: 'Markdown' });
+      } catch (err) { }
+    }
+  }
+
+  res.redirect('/dashboard');
+}));
+
+app.post('/maintenance/add-bypass', requireWebAuth, asyncHandler(async (req, res) => {
+  const { telegramId } = req.body;
+  if (!telegramId || !/^\d+$/.test(String(telegramId).trim())) {
+    return res.redirect('/dashboard?error=invalid_id');
+  }
+  await Settings.updateOne(
+    { key: 'maintenance' },
+    { $addToSet: { allowedUsers: telegramId.trim() } },
+    { upsert: true }
+  );
+  res.redirect('/dashboard');
+}));
+
+app.post('/maintenance/remove-bypass/:id', requireWebAuth, asyncHandler(async (req, res) => {
+  await Settings.updateOne(
+    { key: 'maintenance' },
+    { $pull: { allowedUsers: req.params.id } }
+  );
+  res.redirect('/dashboard');
 }));
 
 app.post('/pending/remove/:id', requireWebAuth, asyncHandler(async (req, res) => {
@@ -661,6 +713,15 @@ bot.use(async (ctx, next) => {
     }
 
     const lang = user.language || 'en';
+
+    // Maintenance Mode Check
+    const maintenance = await Settings.findOne({ key: 'maintenance' }).lean();
+    if (maintenance && maintenance.enabled) {
+      if (!maintenance.allowedUsers || !maintenance.allowedUsers.includes(telegramId)) {
+        return ctx.reply(t('maintenance_mode_msg', lang), Markup.removeKeyboard());
+      }
+    }
+
     if (user.expiryDate && new Date(user.expiryDate) < new Date()) {
       if (user.role === 'admin') {
         return ctx.reply(t('error_access_revoked_credits', lang), Markup.removeKeyboard());

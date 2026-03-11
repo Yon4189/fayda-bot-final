@@ -430,6 +430,58 @@
                 </div>
             </div>
         </div>
+
+        <div class="card"
+            style="border-color: <%= maintenance.enabled ? 'var(--danger)' : 'rgba(255,255,255,0.06)' %>;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                <h2 style="margin: 0; color: <%= maintenance.enabled ? 'var(--danger)' : 'inherit' %>">
+                    🛠️ Maintenance Mode: <%= maintenance.enabled ? 'ON' : 'OFF' %>
+                </h2>
+                <form method="POST" action="/maintenance/toggle" style="margin: 0;"
+                    onsubmit="return confirm('<%= maintenance.enabled ? 'Disable maintenance mode and notify all users?' : 'Turn ON maintenance mode? Regular users will be blocked.' %>');">
+                    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                    <button class="btn <%= maintenance.enabled ? 'btn-danger' : 'btn-outline' %>"
+                        style="<%= !maintenance.enabled ? 'border: 1px solid var(--muted);' : '' %>">
+                        Turn <%= maintenance.enabled ? 'OFF' : 'ON' %>
+                    </button>
+                </form>
+            </div>
+            <p class="msg" style="color: var(--muted); margin-bottom: 1rem;">
+                When active, only users in the bypass list below can access the bot. Others will see a maintenance
+                message.
+            </p>
+
+            <form method="POST" action="/maintenance/add-bypass" class="form-inline" style="margin-bottom: 1rem;">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                <div>
+                    <input type="text" name="telegramId" placeholder="Telegram ID to bypass" required id="bypassInput">
+                </div>
+                <button type="button" class="btn btn-outline" style="border: 1px solid var(--muted);"
+                    onclick="document.getElementById('bypassInput').value = '<%= admin ? admin.telegramId : '' %>'">Auto-fill
+                    ID</button>
+                <button type="submit" class="btn btn-primary">Add to Bypass</button>
+            </form>
+
+            <% if (maintenance.allowedUsers && maintenance.allowedUsers.length> 0) { %>
+                <div style="display: flex; flex-wrap: wrap; gap: 0.5rem;">
+                    <% maintenance.allowedUsers.forEach(userId=> { %>
+                        <div
+                            style="background: var(--surface2); padding: 0.25rem 0.75rem; border-radius: 99px; font-size: 0.8rem; display: flex; align-items: center; gap: 0.5rem; border: 1px solid rgba(255,255,255,0.1);">
+                            <%= userId %>
+                                <form method="POST" action="/maintenance/remove-bypass/<%= userId %>"
+                                    style="margin: 0;">
+                                    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                                    <button type="submit"
+                                        style="background: none; border: none; color: var(--danger); cursor: pointer; font-weight: bold;">&times;</button>
+                                </form>
+                        </div>
+                        <% }) %>
+                </div>
+                <% } else { %>
+                    <span style="font-size: 0.8rem; color: var(--muted);">No users in bypass list.</span>
+                    <% } %>
+        </div>
+
         <div class="card">
             <h2>➕ Add Admin</h2>
             <form method="POST" action="/add-buyer" class="form-inline">
