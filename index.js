@@ -2564,7 +2564,9 @@ bot.on('text', async (ctx) => {
         timer.setPhase('otpPhaseMs', Date.now() - otpPhaseStart);
         timer.report('failed');
         try {
-          await ctx.reply(`❌ Failed: ${e.response?.data?.message || e.message || 'Unknown error. Please try again.'}`);
+          const rawErrMsg = e.response?.data?.message || e.message || 'Unknown error';
+          const errMsg = typeof rawErrMsg === 'string' ? rawErrMsg : JSON.stringify(rawErrMsg);
+          await ctx.reply(`❌ Failed: ${errMsg}`);
         } catch (replyError) {
           logger.error('Failed to send error message:', replyError);
         }
