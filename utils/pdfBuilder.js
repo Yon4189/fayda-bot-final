@@ -73,8 +73,8 @@ const LAYOUT = {
   // PDF Top value = 841.89 - Y - 7.20
   text: [
     // Full Name: top must be 217.6 - 231
-    { id: 'fullName_amh', x: 170.7, y: 616.0, lang: 'am' }, // top=218.69
-    { id: 'fullName_eng', x: 170.7, y: 609.69, lang: 'en' }, // top=225.0
+    { id: 'fullName_amh', x: 170.7, y: 616.0, lang: 'am' }, 
+    { id: 'fullName_eng', x: 170.7, y: 604.5, lang: 'en' }, 
     
     // Date of Birth: ethiopian top must be 280 - 292
     { id: 'dob_et',  x: 59.6, y: 554.0, lang: 'en' },  // top=280.69
