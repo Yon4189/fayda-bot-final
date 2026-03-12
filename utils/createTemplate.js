@@ -35,7 +35,7 @@ const USER_FONT_PREFIXES = [
 ];
 
 async function createTemplate() {
-  const samplePath = path.join(__dirname, '..', 'assets for system building', 'Edmon_Dejen_Haileselassie.pdf');
+  const samplePath = path.join(__dirname, '..', 'System Building Assets', 'efayda_Abel Endalew Mitiku.pdf');
   const outputPath = path.join(__dirname, '..', 'assets', 'fayda_template.pdf');
 
   console.log('Loading sample PDF:', samplePath);
@@ -72,8 +72,12 @@ async function createTemplate() {
     const xobjects = resources.get(PDFName.of('XObject'));
     if (xobjects) {
       for (const imgName of USER_IMAGES) {
-        xobjects.delete(PDFName.of(imgName));
-        console.log(`Removed XObject /${imgName}`);
+        const ref = xobjects.get(PDFName.of(imgName));
+        if (ref) {
+          xobjects.delete(PDFName.of(imgName));
+          pdfDoc.context.delete(ref);
+          console.log(`Removed XObject /${imgName} and its stream from context`);
+        }
       }
     }
 
@@ -84,8 +88,12 @@ async function createTemplate() {
       for (const [key] of entries) {
         const keyStr = key.toString().replace('/', '');
         if (USER_FONT_PREFIXES.some(prefix => keyStr.startsWith(prefix))) {
-          fonts.delete(key);
-          console.log(`Removed font ${key.toString()}`);
+          const ref = fonts.get(key);
+          if (ref) {
+            fonts.delete(key);
+            pdfDoc.context.delete(ref);
+            console.log(`Removed font ${key.toString()} and its dictionary from context`);
+          }
         }
       }
     }
