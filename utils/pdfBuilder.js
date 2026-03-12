@@ -163,7 +163,8 @@ async function buildFaydaPdf(userData, images) {
     // 2. Register fontkit and embed both fonts
     pdfDoc.registerFontkit(fontkit);
     const engFont = await pdfDoc.embedFont(englishFontBytes, { subset: true });
-    const amhFont = await pdfDoc.embedFont(amharicFontBytes, { subset: true });
+    // IMPORTANT: Subsetting breaks complex Amharic script rendering in pdf-lib. Must be false.
+    const amhFont = await pdfDoc.embedFont(amharicFontBytes, { subset: false });
     
     const page = pdfDoc.getPages()[0];
     
