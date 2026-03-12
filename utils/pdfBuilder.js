@@ -6,13 +6,27 @@ const logger = require('./logger');
 
 // Load the blank template we created
 const TEMPLATE_PATH = path.join(__dirname, '..', 'assets', 'fayda_template.pdf');
-// Font supporting both Latin and Ethiopic characters
-const FONT_PATH = path.join(__dirname, '..', 'assets', 'fonts', 'NotoSansEthiopic-Medium.ttf');
+// Dual fonts matching the original Fayda PDF
+const ENGLISH_FONT_PATH = path.join(__dirname, '..', 'assets', 'fonts', 'BarlowSemiCondensed-Medium.ttf');
+const AMHARIC_FONT_PATH = path.join(__dirname, '..', 'assets', 'fonts', 'AbyssinicaSIL-R.ttf');
 
 let templateBytes = null;
-let fontBytes = null;
+let englishFontBytes = null;
+let amharicFontBytes = null;
 
-// The exact layout coordinates extracted from the original PDF content stream
+// Page height for coordinate reference: 841.89 (A4)
+// pdfplumber top → pdf-lib y:  y = 841.89 - top
+
+// The exact layout coordinates aligned with mode3 of generate_data_pdf.py
+// mode3 expects:
+//   FIN:     top ≈ 228,  x0 = 73.6    → y ≈ 613.89
+//   Names:   top ≈ 218-230, x0 ≈ 167   → y ≈ 612-624
+//   DOB:     top ≈ 280-292, x0 ≤ 170    → y ≈ 550-562
+//   City:    top ≈ 281-291, x0 ≥ 200    → y ≈ 551-561
+//   Subcity: top ≈ 315-327, x0 ≥ 200    → y ≈ 515-527
+//   Woreda:  top ≈ 346-358, x0 ≈ 200    → y ≈ 484-496
+//   Phone:   top ≈ 378-380, x0 ≥ 59     → y ≈ 462
+
 const LAYOUT = {
   // --- IMAGES ---
   images: {
@@ -23,42 +37,58 @@ const LAYOUT = {
   },
   
   // --- TEXT FIELDS ---
-  // Default text styling
   textOptions: {
     size: 9,
-    color: { type: 'RGB', red: 0.137, green: 0.364, blue: 0.443 }, // Hex #235D71
+    color: { red: 0.137, green: 0.364, blue: 0.443 }, // #235D71
   },
   
-  // Text positions
+  // Text positions — corrected for mode3 compatibility
+  // lang: 'am' = Amharic font, 'en' = English font, 'both' = English font (numbers/mixed)
   text: [
-    // Phone numbers
-    { id: 'phone', x: 59.6, y: 553.19 },
-    { id: 'fcn',   x: 73.6, y: 605.99 }, // Technically FCN number, placed separately
+    // FCN / FIN number (top ≈ 228, x0 = 73.6)
+    { id: 'fcn',   x: 73.6, y: 613.89, lang: 'en' },
     
-    // Demographics left side (Amharic top, English bottom)
-    { id: 'gender_amh', x: 59.6, y: 517.99 },
-    { id: 'gender_eng', x: 59.6, y: 508.59 },
+    // Full Name (top ≈ 218-230, x0 ≈ 170)
+    { id: 'fullName_amh', x: 170.7, y: 623.89, lang: 'am' },
+    { id: 'fullName_eng', x: 170.7, y: 611.89, lang: 'en' },
     
-    { id: 'nationality_amh', x: 59.6, y: 487.29 },
-    { id: 'nationality_eng', x: 59.6, y: 477.59 },
+    // Date of Birth (top ≈ 280-292, x0 ≤ 170) — FIXED: was at phone position
+    { id: 'dob', x: 59.6, y: 553.19, lang: 'en' },
     
-    { id: 'dob', x: 59.6, y: 455.29 }, // Format: YYYY/MM/DD \n YYYY/MM/DD
+    // Gender (top ≈ 315-327, x0 ≤ 120)
+    { id: 'gender_amh', x: 59.6, y: 517.99, lang: 'am' },
+    { id: 'gender_eng', x: 59.6, y: 508.59, lang: 'en' },
     
-    // Demographics right side (Amharic top, English bottom)
-    { id: 'regionCity_amh', x: 203.2, y: 553.19 },
-    { id: 'regionCity_eng', x: 203.2, y: 544.49 },
+    // Nationality (top ≈ 346-358, x0 ≤ 120)
+    { id: 'nationality_amh', x: 59.6, y: 487.29, lang: 'am' },
+    { id: 'nationality_eng', x: 59.6, y: 477.59, lang: 'en' },
     
-    { id: 'subcityZone_amh', x: 203.2, y: 517.99 },
-    { id: 'subcityZone_eng', x: 203.2, y: 508.59 },
+    // Phone Number (top ≈ 378-380, x0 ≥ 59) — FIXED: was at DOB position
+    { id: 'phone', x: 59.6, y: 455.29, lang: 'en' },
     
-    { id: 'woreda_amh', x: 203.2, y: 487.29 },
-    { id: 'woreda_eng', x: 203.2, y: 477.59 },
+    // Region/City (top ≈ 281-291, x0 ≥ 200)
+    { id: 'regionCity_amh', x: 203.2, y: 553.19, lang: 'am' },
+    { id: 'regionCity_eng', x: 203.2, y: 544.49, lang: 'en' },
     
-    // Full Name
-    { id: 'fullName_amh', x: 170.7, y: 615.99 },
-    { id: 'fullName_eng', x: 170.7, y: 604.49 }
+    // Subcity/Zone (top ≈ 315-327, x0 ≥ 200)
+    { id: 'subcityZone_amh', x: 203.2, y: 517.99, lang: 'am' },
+    { id: 'subcityZone_eng', x: 203.2, y: 508.59, lang: 'en' },
+    
+    // Woreda (top ≈ 346-358, x0 ≈ 200-365)
+    { id: 'woreda_amh', x: 203.2, y: 487.29, lang: 'am' },
+    { id: 'woreda_eng', x: 203.2, y: 477.59, lang: 'en' },
   ]
 };
+
+/**
+ * Format FCN/FIN with spaces every 4 digits
+ * "4658694398563761" → "4658 6943 9856 3761"
+ */
+function formatFCN(fcn) {
+  if (!fcn) return '';
+  const digits = String(fcn).replace(/\s/g, '');
+  return digits.replace(/(.{4})/g, '$1 ').trim();
+}
 
 /**
  * Ensures template and fonts are loaded into memory
@@ -71,20 +101,23 @@ function preloadAssets() {
     templateBytes = fs.readFileSync(TEMPLATE_PATH);
   }
   
-  if (!fontBytes) {
-    if (!fs.existsSync(FONT_PATH)) {
-      throw new Error(`Font not found at ${FONT_PATH}.`);
+  if (!englishFontBytes) {
+    if (!fs.existsSync(ENGLISH_FONT_PATH)) {
+      throw new Error(`English font not found at ${ENGLISH_FONT_PATH}.`);
     }
-    fontBytes = fs.readFileSync(FONT_PATH);
+    englishFontBytes = fs.readFileSync(ENGLISH_FONT_PATH);
+  }
+
+  if (!amharicFontBytes) {
+    if (!fs.existsSync(AMHARIC_FONT_PATH)) {
+      throw new Error(`Amharic font not found at ${AMHARIC_FONT_PATH}.`);
+    }
+    amharicFontBytes = fs.readFileSync(AMHARIC_FONT_PATH);
   }
 }
 
 /**
  * Builds the final PDF by placing user data into the blank template
- * 
- * @param {Object} userData - Data extracted from the verify-otp API
- * @param {Object} images - Base64 strings: { photo, qrCode, front, back }
- * @returns {Promise<Buffer>} The completed PDF bytes
  */
 async function buildFaydaPdf(userData, images) {
   try {
@@ -93,21 +126,20 @@ async function buildFaydaPdf(userData, images) {
     // 1. Load template
     const pdfDoc = await PDFDocument.load(templateBytes);
     
-    // 2. Register fontkit to support custom fonts
+    // 2. Register fontkit and embed both fonts
     pdfDoc.registerFontkit(fontkit);
-    const customFont = await pdfDoc.embedFont(fontBytes);
+    const engFont = await pdfDoc.embedFont(englishFontBytes);
+    const amhFont = await pdfDoc.embedFont(amharicFontBytes);
     
     const page = pdfDoc.getPages()[0];
     
     // 3. Embed and draw images
     const embedImageSafely = async (base64Str) => {
       if (!base64Str) return null;
-      // Remove data URIs if present
       const cleanBase64 = base64Str.replace(/^data:image\/(png|jpeg|jpg);base64,/, '');
       const buffer = Buffer.from(cleanBase64, 'base64');
       
       const isPng = cleanBase64.startsWith('iVBORw0KGgo');
-      // If it starts with /9j/ it's definitely JPEG, but default to jpeg fallback
       if (isPng) {
         return await pdfDoc.embedPng(buffer);
       } else {
@@ -138,17 +170,20 @@ async function buildFaydaPdf(userData, images) {
     // 4. Draw text fields
     const textColor = rgb(LAYOUT.textOptions.color.red, LAYOUT.textOptions.color.green, LAYOUT.textOptions.color.blue);
 
-    // Helper to format DOB
-    // We place the Ethiopian date on top, Gregorian below.
+    // Format DOB: Ethiopian date on top, Gregorian below
     let dobText = '';
     if (userData.dateOfBirth_et && userData.dateOfBirth_eng) {
          dobText = `${userData.dateOfBirth_et}\n${userData.dateOfBirth_eng}`;
+    } else if (userData.dateOfBirth_et) {
+         dobText = userData.dateOfBirth_et;
+    } else if (userData.dateOfBirth_eng) {
+         dobText = userData.dateOfBirth_eng;
     }
 
     // Map the userData to our layout IDs
     const fieldMapping = {
       phone: userData.phone,
-      fcn: userData.fcn || userData.UIN,
+      fcn: formatFCN(userData.fcn || userData.UIN),
       
       gender_amh: userData.gender_amh,
       gender_eng: userData.gender_eng,
@@ -174,11 +209,12 @@ async function buildFaydaPdf(userData, images) {
     for (const field of LAYOUT.text) {
       const textToDraw = fieldMapping[field.id];
       if (textToDraw) {
+        const font = field.lang === 'am' ? amhFont : engFont;
         page.drawText(String(textToDraw), {
           x: field.x,
           y: field.y,
           size: LAYOUT.textOptions.size,
-          font: customFont,
+          font: font,
           color: textColor,
           lineHeight: 9.6
         });
