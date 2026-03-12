@@ -6,8 +6,8 @@ const userSchema = new mongoose.Schema({
   phoneNumber: { type: String, sparse: true, index: true },
   firstName: String,
   lastName: String,
-  // admin | user | unauthorized
-  role: { type: String, enum: ['admin', 'user', 'unauthorized'], default: 'unauthorized', index: true },
+  // admin | user | unauthorized | trial
+  role: { type: String, enum: ['admin', 'user', 'unauthorized', 'trial'], default: 'unauthorized', index: true },
   language: { type: String, default: 'en' },
   // For users: telegramId of their admin. For admins: optional (set if added via web dashboard).
   parentAdmin: { type: String, index: true },

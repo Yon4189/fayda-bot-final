@@ -244,8 +244,42 @@ app.get('/dashboard', requireWebAuth, asyncHandler(async (req, res) => {
     maintenance = { enabled: false, allowedUsers: [] };
   }
 
-  res.render('dashboard', { stats, admins: enriched, maintenance, error: req.query.error });
+  // Get public mode setting
+  let publicMode = await Settings.findOne({ key: 'publicMode' }).lean();
+  if (!publicMode) {
+    publicMode = { enabled: false, value: 5 };
+  }
+
+  res.render('dashboard', { stats, admins: enriched, maintenance, publicMode, error: req.query.error });
 }));
+
+// ---------- Public Mode ----------
+app.get('/public', requireWebAuth, asyncHandler(async (req, res) => {
+  const trialUsers = await User.find({ role: 'trial' }).sort({ createdAt: -1 }).lean();
+  let publicMode = await Settings.findOne({ key: 'publicMode' }).lean();
+  if (!publicMode) {
+    publicMode = { enabled: false, value: 5 };
+  }
+  res.render('public', { trialUsers, publicMode });
+}));
+
+app.post('/public-mode/toggle', requireWebAuth, asyncHandler(async (req, res) => {
+  const { downloadLimit, action } = req.body;
+  let setting = await Settings.findOne({ key: 'publicMode' });
+  if (!setting) {
+    setting = new Settings({ key: 'publicMode', value: 5, enabled: false });
+  }
+
+  if (action === 'toggle') {
+    setting.enabled = !setting.enabled;
+  } else if (action === 'update_limit') {
+    setting.value = parseInt(downloadLimit) || 5;
+  }
+  
+  await setting.save();
+  res.redirect('/dashboard');
+}));
+
 app.get('/pending', requireWebAuth, asyncHandler(async (req, res) => {
   const pending = await User.find({ role: 'unauthorized' }).sort({ lastActive: -1 }).limit(50).lean();
   res.render('pending', { pending });
@@ -704,20 +738,40 @@ bot.use(async (ctx, next) => {
       { upsert: true, new: true }
     );
 
-    if (!user || user.role === 'unauthorized') {
-      return ctx.reply(
-        `🚫Access Denied\n\nYour Telegram ID: ${telegramId}\n\nSend this ID to an admin or @yesno_101 to purchase access.\n\n\n🚫 መዳረሻ ተከልክሏል\n\nየቴሌግራም መለያ ቁጥርዎ: ${telegramId}\n\nአገልግሎቱን ለመግዛት ይህን መለያ ቁጥር ለAdmin ወይም ለ @yesno_101 ይላኩ።`,
-        Markup.removeKeyboard()
-      );
-    }
-
-    const lang = user.language || 'en';
+    const lang = user ? (user.language || 'en') : 'en';
 
     // Maintenance Mode Check
     const maintenance = await Settings.findOne({ key: 'maintenance' }).lean();
     if (maintenance && maintenance.enabled) {
       if (!maintenance.allowedUsers || !maintenance.allowedUsers.includes(telegramId)) {
         return ctx.reply(t('maintenance_mode_msg', lang), Markup.removeKeyboard());
+      }
+    }
+
+    // Public Mode Check
+    const publicMode = await Settings.findOne({ key: 'publicMode' }).lean();
+    const isTrialActive = publicMode && publicMode.enabled;
+    const trialLimit = publicMode ? (publicMode.value || 5) : 5;
+
+    if (!user || user.role === 'unauthorized') {
+      if (isTrialActive && user) {
+        user.role = 'trial';
+        await User.updateOne({ _id: user._id }, { role: 'trial' });
+      } else {
+        return ctx.reply(
+          `🚫Access Denied\n\nYour Telegram ID: ${telegramId}\n\nSend this ID to an admin or @yesno_101 to purchase access.\n\n\n🚫 መዳረሻ ተከልክሏል\n\nየቴሌግራም መለያ ቁጥርዎ: ${telegramId}\n\nአገልግሎቱን ለመግዛት ይህን መለያ ቁጥር ለAdmin ወይም ለ @yesno_101 ይላኩ።`,
+          Markup.removeKeyboard()
+        );
+      }
+    }
+
+    // Trial Mode Enforcement
+    if (user.role === 'trial') {
+      if (!isTrialActive || (user.downloadCount || 0) >= trialLimit) {
+        return ctx.reply(
+          `🚫Free Trial is Over\n\nYour Telegram ID: ${telegramId}\n\nContact @yesno_101 to purchase access.\n\n\n🚫 የነፃ ሙከራ ጊዜዎ አልቋል\n\nየቴሌግራም መለያ ቁጥርዎ: ${telegramId}\n\nአገልግሎቱን ለመግዛት ይህን መለያ ቁጥር ለ @yesno_101 ይላኩ።`,
+          Markup.removeKeyboard()
+        );
       }
     }
 

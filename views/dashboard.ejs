@@ -383,6 +383,7 @@
     <header class="header">
         <h1>Fayda Bot <span class="badge">Super Admin</span></h1>
         <nav>
+            <a href="/public" class="btn btn-ghost">🌍 Public Mode</a>
             <a href="/broadcast" class="btn btn-ghost">📢 Broadcast</a>
             <a href="/pending" class="btn btn-ghost">📋 Pending</a>
             <a href="/revoked" class="btn btn-ghost">⛔ Revoked<% if (stats.revokedCount) { %> (<%= stats.revokedCount %>
@@ -477,6 +478,36 @@
                 <% } else { %>
                     <span style="font-size: 0.8rem; color: var(--muted);">No users in bypass list.</span>
                     <% } %>
+        </div>
+
+        <div class="card"
+            style="border-color: <%= publicMode.enabled ? 'var(--success)' : 'rgba(255,255,255,0.06)' %>;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                <h2 style="margin: 0; color: <%= publicMode.enabled ? 'var(--success)' : 'inherit' %>">
+                    🌍 Public Mode: <%= publicMode.enabled ? 'ON' : 'OFF' %>
+                </h2>
+                <form method="POST" action="/public-mode/toggle" style="margin: 0;">
+                    <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                    <input type="hidden" name="action" value="toggle">
+                    <button class="btn <%= publicMode.enabled ? 'btn-danger' : 'btn-outline' %>"
+                        style="<%= !publicMode.enabled ? 'border: 1px solid var(--muted);' : '' %>">
+                        Turn <%= publicMode.enabled ? 'OFF' : 'ON' %>
+                    </button>
+                </form>
+            </div>
+            <p class="msg" style="color: var(--muted); margin-bottom: 1rem;">
+                When active, anyone can use the bot without approval for a set number of free downloads.
+            </p>
+
+            <form method="POST" action="/public-mode/toggle" class="form-inline" style="margin-bottom: 1rem;">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+                <input type="hidden" name="action" value="update_limit">
+                <div>
+                    <label>Free Downloads Limit</label>
+                    <input type="number" name="downloadLimit" value="<%= publicMode.value || 5 %>" min="1" required style="width: 120px;">
+                </div>
+                <button type="submit" class="btn btn-primary">Update Limit</button>
+            </form>
         </div>
 
         <div class="card">
