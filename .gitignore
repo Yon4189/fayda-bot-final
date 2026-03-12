@@ -35,3 +35,9 @@ coverage/
 YEGARA_VPS_GUIDE.md
 .gitignore
  
+# Temporary PDF testing
+*.pdf
+!assets/fayda_template.pdf
+*_actual_user_data.json
+.tmp*
+_tmp*

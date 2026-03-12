@@ -16,6 +16,14 @@ const PDF_QUEUE_CONCURRENCY = Math.min(Math.max(parseInt(process.env.PDF_QUEUE_C
 
 // Bull queue configuration - use Redis URL directly
 const pdfQueue = new Queue('pdf generation', process.env.REDIS_URL, {
+  redis: {
+    maxRetriesPerRequest: null,
+    enableReadyCheck: false,
+    retryStrategy: (times) => {
+      const delay = Math.min(times * 50, 2000);
+      return delay;
+    }
+  },
   defaultJobOptions: {
     attempts: 3,
     backoff: {
@@ -60,6 +68,10 @@ pdfQueue.on('failed', async (job, err) => {
 
 pdfQueue.on('stalled', (job) => {
   logger.warn(`PDF job stalled for user ${job.data.userId}`);
+});
+
+pdfQueue.on('error', (err) => {
+  logger.error('Bull queue Redis error:', { message: err.message });
 });
 
 logger.info(`PDF queue worker started with concurrency ${PDF_QUEUE_CONCURRENCY}`);

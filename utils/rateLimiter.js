@@ -12,6 +12,10 @@ const redisClient = new Redis(process.env.REDIS_URL, {
   }
 });
 
+redisClient.on('error', (err) => {
+  logger.error('RateLimiter Redis error:', { message: err.message });
+});
+
 // Simple Redis store for rate limiting
 class RedisStore {
   constructor(client, prefix = 'rl:') {
