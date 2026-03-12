@@ -65,42 +65,43 @@ const LAYOUT = {
     color: { red: 0.137, green: 0.364, blue: 0.443 }, // #235D71
   },
   
-  // FCN is drawn as a single spaced string (e.g. "2971 8516 2793 1407")
-  fcn: { x: 73.6, y: 606.0 },
+  // For mode3 detection, top MUST be exactly 227-229.
+  // Y = 841.89 - Top - 7.20. Target Top=228.5 => Y ~ 606.19
+  fcn: { x: 73.6, y: 606.19 },
   
-  // Text positions — calibrated to match original PDF exactly
-  // lang: 'am' = Amharic font, 'en' = English font
+  // Text positions mathematically calibrated to fit exactly inside generate_data_pdf.py mode3 windows
+  // PDF Top value = 841.89 - Y - 7.20
   text: [
-    // Full Name — Amharic above, English below
-    { id: 'fullName_amh', x: 170.7, y: 616.0, lang: 'am' },
-    { id: 'fullName_eng', x: 170.7, y: 604.5, lang: 'en' },
+    // Full Name: top must be 217.6 - 231
+    { id: 'fullName_amh', x: 170.7, y: 616.0, lang: 'am' }, // top=218.69
+    { id: 'fullName_eng', x: 170.7, y: 609.69, lang: 'en' }, // top=225.0
     
-    // Date of Birth — two separate lines (Ethiopian then Gregorian)
-    { id: 'dob_et',  x: 59.6, y: 553.19, lang: 'en' },
-    { id: 'dob_eng', x: 59.6, y: 544.49, lang: 'en' },
+    // Date of Birth: ethiopian top must be 280 - 292
+    { id: 'dob_et',  x: 59.6, y: 554.0, lang: 'en' },  // top=280.69
+    { id: 'dob_eng', x: 59.6, y: 544.0, lang: 'en' },  // top=290.69
     
-    // Gender
-    { id: 'gender_amh', x: 59.6, y: 519.5, lang: 'am' },
-    { id: 'gender_eng', x: 59.6, y: 508.59, lang: 'en' },
+    // Gender (Matches Subcity horizontal line visually)
+    { id: 'gender_amh', x: 59.6, y: 518.69, lang: 'am' }, 
+    { id: 'gender_eng', x: 59.6, y: 508.69, lang: 'en' }, 
     
-    // Nationality
-    { id: 'nationality_amh', x: 59.6, y: 488.8, lang: 'am' },
-    { id: 'nationality_eng', x: 59.6, y: 477.59, lang: 'en' },
+    // Nationality (Matches Woreda horizontal line visually)
+    { id: 'nationality_amh', x: 59.6, y: 487.69, lang: 'am' }, 
+    { id: 'nationality_eng', x: 59.6, y: 477.69, lang: 'en' }, 
     
-    // Phone Number
-    { id: 'phone', x: 59.6, y: 455.29, lang: 'en' },
+    // Phone Number: top must be 378 - 380
+    { id: 'phone', x: 59.6, y: 455.69, lang: 'en' }, // top=379.0
     
-    // Region/City
-    { id: 'regionCity_amh', x: 203.2, y: 553.5, lang: 'am' },
-    { id: 'regionCity_eng', x: 203.2, y: 544.49, lang: 'en' },
+    // Region/City: top must be 281 - 291 for BOTH!
+    { id: 'regionCity_amh', x: 203.2, y: 552.69, lang: 'am' }, // top=282.0
+    { id: 'regionCity_eng', x: 203.2, y: 544.69, lang: 'en' }, // top=290.0
     
-    // Subcity/Zone
-    { id: 'subcityZone_amh', x: 203.2, y: 519.5, lang: 'am' },
-    { id: 'subcityZone_eng', x: 203.2, y: 508.59, lang: 'en' },
+    // Subcity: top must be 315 - 327 for BOTH!
+    { id: 'subcityZone_amh', x: 203.2, y: 518.69, lang: 'am' }, // top=316.0
+    { id: 'subcityZone_eng', x: 203.2, y: 508.69, lang: 'en' }, // top=326.0
     
-    // Woreda
-    { id: 'woreda_amh', x: 203.2, y: 488.8, lang: 'am' },
-    { id: 'woreda_eng', x: 203.2, y: 477.59, lang: 'en' },
+    // Woreda: top must be 346 - 358 for BOTH!
+    { id: 'woreda_amh', x: 203.2, y: 487.69, lang: 'am' }, // top=347.0
+    { id: 'woreda_eng', x: 203.2, y: 477.69, lang: 'en' }, // top=357.0
   ]
 };
 
