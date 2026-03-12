@@ -6,6 +6,7 @@ const logger = require('./logger');
 const redisClient = new Redis(process.env.REDIS_URL, {
   maxRetriesPerRequest: null,
   enableReadyCheck: false,
+  keepAlive: 10000,
   retryStrategy: (times) => {
     const delay = Math.min(times * 50, 2000);
     return delay;
@@ -13,6 +14,7 @@ const redisClient = new Redis(process.env.REDIS_URL, {
 });
 
 redisClient.on('error', (err) => {
+  if (err.message && err.message.includes('ECONNRESET')) return;
   logger.error('RateLimiter Redis error:', { message: err.message });
 });
 
