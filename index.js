@@ -2365,8 +2365,6 @@ bot.on('text', async (ctx) => {
     if (uid) {
       activeDownloads.delete(uid);
       processingOTPs.delete(uid);
-      pendingCaptchas.delete(uid);
-      pendingVerifications.delete(uid);
     }
     if (ctx.session) {
       ctx.session.step = null;
