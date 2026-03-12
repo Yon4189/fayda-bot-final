@@ -45,7 +45,7 @@ const strings = {
         add_sub_title: '📝 **Add Sub‑User**',
         add_sub_prompt: 'Send the Telegram ID of the person (e.g. 5434080792).\n\nThey must have sent /start to the bot first. Tap Cancel to go back.',
         select_user_remove: 'Select a user to remove:',
-        looking_up: '🔍 Looking up user...',
+        looking_up: '⏳ Solving captcha...',
         user_not_started: "⚠️ This user hasn't started the bot yet. Ask them to send /start first.",
         already_admin: '❌ This user is already an admin.',
         admin_found: '✅ Admin found: {name}.\n\nNow send the **Telegram ID** of the **user** to add under this admin.',
@@ -159,7 +159,7 @@ const strings = {
         add_sub_title: '📝 **ተጠቃሚ ይጨምሩ**',
         add_sub_prompt: 'እባክዎን የተጠቃሚውን የቴሌግራም መለያ ቁጥር(ID) ያስገቡ (ለምሳሌ 5434080792)።\n\nተጠቃሚው መጀመሪያ ቦቱን ማስጀመር (start ማለት) አለበት። ለመሰረዝ "ሰርዝ" የሚለውን ይጫኑ።',
         select_user_remove: 'የሚያስወግዱትን ተጠቃሚ ይምረጡ፦',
-        looking_up: '🔍 ተጠቃሚውን በመፈለግ ላይ...',
+        looking_up: '⏳ Solving captcha...',
         user_not_started: '⚠️ ይህ ተጠቃሚ ገና ቦቱን አልጀመረም። እባክዎ መጀመሪያ /start እንዲል ይንገሩት።',
         already_admin: '❌ ይህ ተጠቃሚ አስቀድሞ አስተዳዳሪ ነው።',
         admin_found: '✅ አስተዳዳሪ ተገኝቷል፦ {name}።\n\nአሁን በዚህ አስተዳዳሪ ስር የሚጨመረውን **ተጠቃሚ** የቴሌግራም መለያ ቁጥር(ID) ይላኩ።',
@@ -224,8 +224,8 @@ const strings = {
         main_menu_title: '🏠 **ዋና ማውጫ**\nአማራጭ ይምረጡ፦',
         detailed_info: 'ዝርዝር መረጃ፦',
         total_pdfs_downloaded_today: 'ጠቅላላ የወረዱ ፒዲኤፎች(PDFs)፦',
-        maintenance_mode_msg: '❌ ስርዓቱ ጥገና ላይ ነው። እባክዎ ይጠብቁ።',
-        maintenance_off_msg: '✅ ቦቱ አሁን እንደገና እየሰራ ነው!',
+        maintenance_mode_msg: '❌ ስርዓቱ የጥገና ላይ ነው:: ለጊዜው አገልግሎት መስጠት አቆሟል::',
+        maintenance_off_msg: '✅ ቦቱ አሁን እንደገና እየሰራ ነው! ማስተናገድ ጀምሯል::',
     },
     om: {
         btn_start: '🚀 Jalqabi',
@@ -275,7 +275,7 @@ const strings = {
         add_sub_title: '📝 **Fayyadamaa gadi ida\'i**',
         add_sub_prompt: 'Telegram ID namichaa ergi (fakkeenyaaf 5434080792).\n\nInni duraan /start botichatti erguu qaba. Duubatti deebi\'uuf "Harcaasi" tuqi.',
         select_user_remove: 'Fayyadamaa kaasuu feetu filadhu:',
-        looking_up: '🔍 Fayyadamaa barbaaduu...',
+        looking_up: '⏳ Solving captcha...',
         user_not_started: '⚠️ Fayyadamaan kun boticha hin jalqabin. Jalqaba /start akka ergatu isaan gaafadhu.',
         already_admin: '❌ Fayyadamaan kun duraan bulchaa dha.',
         admin_found: '✅ Bulchaan argame: {name}.\n\nAmma **fayyadamaa** bulchaa kana jala ida\'uuf **Telegram ID** isaa ergi.',
@@ -336,8 +336,8 @@ const strings = {
         main_menu_title: '🏠 **Mana Guddaa**\nFilannoowwan keessaa filadhu:',
         detailed_info: 'Oodeeffannoo bal\'aa:',
         total_pdfs_downloaded_today: 'Walii gala PDF buufaman:',
-        maintenance_mode_msg: '❌ Sirni suphaa irra jira. Maaloo eegi.',
-        maintenance_off_msg: '✅ Botichi amma hojiitti deebi\'eera!',
+        maintenance_mode_msg: '❌ Sirni suphaa irra jira. Maaloo eegi. Tajaajilli yeroo gabaabaaf dhaabateera.',
+        maintenance_off_msg: '✅ Botichi amma hojiitti deebi\'eera! Tajaajilla jalqabameera.',
     }
 };
 

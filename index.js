@@ -294,15 +294,25 @@ app.post('/maintenance/toggle', requireWebAuth, asyncHandler(async (req, res) =>
   setting.enabled = !setting.enabled;
   await setting.save();
 
-  // If disabled, automatically notify all active users
-  if (!setting.enabled) {
-    const activeUsers = await User.find({ role: { $ne: 'unauthorized' } }).select('telegramId language').lean();
-    for (const u of activeUsers) {
-      try {
-        const uLang = u.language || 'en';
-        await bot.telegram.sendMessage(u.telegramId, t('maintenance_off_msg', uLang), { parse_mode: 'Markdown' });
-      } catch (err) { }
-    }
+  // Notify all active users of the mode switch
+  const activeUsers = await User.find({ role: { $ne: 'unauthorized' } }).select('telegramId language role').lean();
+  for (const u of activeUsers) {
+    try {
+      const uLang = u.language || 'en';
+      if (!setting.enabled) {
+        // Turned OFF: Notify and restore the user's role-based menu keyboard
+        await bot.telegram.sendMessage(u.telegramId, t('maintenance_off_msg', uLang), { 
+          parse_mode: 'Markdown',
+          ...getReplyKeyboard(u.role, uLang)
+        });
+      } else {
+        // Turned ON: Notify users that maintenance is now active
+        await bot.telegram.sendMessage(u.telegramId, t('maintenance_mode_msg', uLang), { 
+          parse_mode: 'Markdown',
+          ...Markup.removeKeyboard() 
+        });
+      }
+    } catch (err) { }
   }
 
   res.redirect('/dashboard');
@@ -714,13 +724,13 @@ bot.use(async (ctx, next) => {
   try {
     const telegramId = ctx.from.id.toString();
 
-    // Rate limit check
-    const rateLimit = await checkUserRateLimit(telegramId, 30, 60000);
-    if (!rateLimit.allowed) {
-      const waitTime = rateLimit.resetTime ? Math.ceil((rateLimit.resetTime - Date.now()) / 1000) : 60;
-      const lang = ctx.state.user?.language || 'en';
-      return ctx.reply(t('error_rate_limit', lang).replace('{waitTime}', waitTime));
-    }
+    // Rate limit check (Temporarily disabled by request)
+    // const rateLimit = await checkUserRateLimit(telegramId, 30, 60000);
+    // if (!rateLimit.allowed) {
+    //   const waitTime = rateLimit.resetTime ? Math.ceil((rateLimit.resetTime - Date.now()) / 1000) : 60;
+    //   const lang = ctx.state.user?.language || 'en';
+    //   return ctx.reply(t('error_rate_limit', lang).replace('{waitTime}', waitTime));
+    // }
 
     // Single DB call: upsert profile + return current doc (replaces two separate queries)
     const user = await User.findOneAndUpdate(
