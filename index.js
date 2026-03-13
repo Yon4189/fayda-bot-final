@@ -139,9 +139,10 @@ app.use((req, res, next) => {
 // Health check endpoint (simple – for load balancers)
 app.get('/health', (req, res) => {
   res.json({
-    status: 'ok',
+    status: isInitialized ? 'ok' : 'initializing',
     timestamp: new Date().toISOString(),
-    uptime: process.uptime()
+    uptime: process.uptime(),
+    initialized: isInitialized
   });
 });
 
@@ -2447,21 +2448,33 @@ process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 // ---------- Start Server ----------
-async function startServer() {
-  logger.info('🚀 Initializing server startup...');
+let isInitialized = false;
+
+async function initializeBackgroundTasks() {
   try {
     // 1. Connect to database
-    logger.info('💾 Connecting to MongoDB...');
+    logger.info('💾 Background: Connecting to MongoDB...');
     await connectDB();
-    logger.info('✅ MongoDB connected');
+    logger.info('✅ Background: MongoDB connected');
 
     // 2. Run migrations
-    logger.info('🔧 Running role migrations...');
+    logger.info('🔧 Background: Running role migrations...');
     await migrateRoles();
-    logger.info('✅ Migrations complete');
+    logger.info('✅ Background: Migrations complete');
 
-    // 3. Setup periodic cleanup
-    logger.info('🧹 Setting up periodic cleanup tasks...');
+    isInitialized = true;
+    logger.info('⭐ Background: Bot is fully initialized and operational');
+  } catch (err) {
+    logger.error("❌ Background: Initialization failure:", err);
+    // We don't exit(1) here because the web server is already running
+    // This allows the user to see the error in logs while the process stays alive
+  }
+}
+
+async function startServer() {
+  logger.info('🚀 High-Priority: Starting Express server...');
+  try {
+    // 1. Setup periodic cleanup (safe to start early)
     setInterval(() => {
       const now = Date.now();
       let cooldownCleared = 0;
@@ -2474,44 +2487,57 @@ async function startServer() {
       if (cooldownCleared > 0) logger.info(`Cleaned up ${cooldownCleared} expired verification cooldowns`);
     }, 15 * 60 * 1000);
 
-    // 4. Set webhook
-    logger.info('🛜 Configuring Telegram webhook...');
+    // 2. Set webhook or use Polling
     const webhookPath = '/webhook';
     let webhookDomain = process.env.WEBHOOK_DOMAIN || '';
-    if (webhookDomain && !webhookDomain.startsWith('http')) {
-      webhookDomain = `https://${webhookDomain}`;
-      logger.warn(`⚠️ WEBHOOK_DOMAIN missing protocol, added https://`);
-    }
-    const webhookUrl = `${webhookDomain}${webhookPath}`;
     
-    try {
-      await bot.telegram.setWebhook(webhookUrl);
-      logger.info(`✅ Webhook set to: ${webhookUrl}`);
-    } catch (whErr) {
-      logger.error('❌ Failed to set webhook:', whErr.message);
-      if (process.env.NODE_ENV === 'production') throw whErr;
+    // Improved detection: 
+    // - Force polling if FAYDA_LOCAL_DEV is true
+    // - Use polling if no webhook domain is set
+    // - Use polling if we're clearly not on a production platform (no RAILWAY_STATIC_URL, etc.)
+    const isLocal = process.env.FAYDA_LOCAL_DEV === 'true' || 
+                   !webhookDomain || 
+                   (!process.env.RAILWAY_STATIC_URL && process.env.NODE_ENV !== 'production');
+
+    if (!isLocal && webhookDomain) {
+      logger.info('🛜 High-Priority: Configuring Telegram webhook...');
+      if (!webhookDomain.startsWith('http')) {
+        webhookDomain = `https://${webhookDomain}`;
+      }
+      const webhookUrl = `${webhookDomain}${webhookPath}`;
+      
+      try {
+        await bot.telegram.setWebhook(webhookUrl);
+        logger.info(`✅ Webhook configured: ${webhookUrl}`);
+        app.use(bot.webhookCallback(webhookPath));
+      } catch (whErr) {
+        logger.error('⚠️ Webhook set failed:', whErr.message);
+      }
+    } else {
+      logger.info('🔌 Local Environment: Starting bot with Long Polling...');
+      try {
+        // Clear any previous webhook so polling works
+        await bot.telegram.deleteWebhook();
+        bot.launch().catch(err => {
+          logger.error('❌ Bot launch failed:', err.message);
+        });
+        logger.info('✅ Bot started via Long Polling');
+      } catch (pollErr) {
+        logger.error('⚠️ Polling start failed:', pollErr.message);
+      }
     }
 
-    app.use(bot.webhookCallback(webhookPath));
-
-    // 5. Check for placeholder domains
-    if (/your-app-name|example\.com|localhost/.test(process.env.WEBHOOK_DOMAIN || '')) {
-      logger.warn('⚠️ WEBHOOK_DOMAIN looks like a placeholder. Update it in your deployment Variables.');
-    }
-
-    // 6. Start Express
+    // 3. Start Express IMMEDIATELY to pass health checks
     const PORT = process.env.PORT || 3000;
     app.listen(PORT, () => {
-      logger.info(`🚀 Server running on port ${PORT}`);
-      logger.info('⭐ Bot is ready and listening');
+      logger.info(`🚀 Server listening on port ${PORT} (Marked as ONLINE by Railway)`);
+      
+      // 4. Trigger background initialization
+      initializeBackgroundTasks();
     });
 
   } catch (err) {
-    logger.error("❌ FATAL: Failed to start server:", err);
-    console.error('\n' + '!'.repeat(50));
-    console.error('FATAL STARTUP ERROR');
-    console.error(err);
-    console.error('!'.repeat(50) + '\n');
+    logger.error("❌ FATAL: Failed to start web server:", err);
     process.exit(1);
   }
 }
