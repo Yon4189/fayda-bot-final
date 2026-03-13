@@ -11,11 +11,14 @@ services:
       - NODE_ENV=production
       - BOT_TOKEN=${BOT_TOKEN}
       - CAPTCHA_KEY=${CAPTCHA_KEY}
-      - MONGODB_URI=${MONGODB_URI}
+      - MONGODB_URI=mongodb://mongodb:27017/fayda_bot
+      - REDIS_URL=redis://redis:6379
       - SESSION_SECRET=${SESSION_SECRET}
-      - REDIS_URL=${REDIS_URL}
       - WEBHOOK_DOMAIN=${WEBHOOK_DOMAIN}
       - PORT=3000
+    depends_on:
+      - mongodb
+      - redis
     volumes:
       - ./logs:/app/logs
     healthcheck:
@@ -27,6 +30,29 @@ services:
     networks:
       - bot-network
 
+  mongodb:
+    image: mongo:latest
+    container_name: mongodb-local
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    networks:
+      - bot-network
+    volumes:
+      - mongodb_data:/data/db
+
+  redis:
+    image: redis:latest
+    container_name: redis-local
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    networks:
+      - bot-network
+
 networks:
   bot-network:
     driver: bridge
+
+volumes:
+  mongodb_data:

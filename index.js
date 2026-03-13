@@ -19,7 +19,11 @@ const helmet = require('helmet');
 const session = require('express-session');
 const MongoStore = require('connect-mongo');
 const FaydaAppClient = require('./utils/faydaAppClient');
-const faydaApp = new FaydaAppClient(process.env.FAYDA_APP_API_KEY);
+const faydaApp = process.env.FAYDA_APP_API_KEY ? new FaydaAppClient(process.env.FAYDA_APP_API_KEY) : null;
+if (!faydaApp) {
+  logger.warn('⚠️ FAYDA_APP_API_KEY is missing. Download feature will be disabled.');
+}
+
 const { buildFaydaPdf } = require('./utils/pdfBuilder');
 const fayda = require('./utils/faydaClient'); // Kept for legacy routes if any
 const { Markup } = require('telegraf');
@@ -2126,7 +2130,12 @@ bot.on('text', async (ctx) => {
         return ctx.reply(t('error_rate_limit', lang).replace('{waitTime}', waitSec));
       }
 
+      if (!faydaApp) {
+        return ctx.reply('❌ **Download feature is currently disabled.**\n\nAdministrative action required: `FAYDA_APP_API_KEY` is not configured in the server environment.', { parse_mode: 'Markdown' });
+      }
+
       activeDownloads.set(userId, true);
+
       const statusMsg = await ctx.reply(t('looking_up', lang) || 'Looking up ID...');
 
       const timer = new DownloadTimer(userId);
