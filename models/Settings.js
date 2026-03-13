@@ -10,6 +10,9 @@ const Schema = new mongoose.Schema({
         type: Boolean,
         default: false
     },
+    value: {
+        type: mongoose.Schema.Types.Mixed
+    },
     allowedUsers: [{
         type: String
     }],

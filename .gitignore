@@ -30,10 +30,8 @@ build/
 # PM2
 .pm2/
 
-# Coverage
-coverage/
-YEGARA_VPS_GUIDE.md
-.gitignore
+# Project-specific assets
+System Building Assets/
  
 # Temporary PDF testing
 *.pdf
@@ -41,3 +39,7 @@ YEGARA_VPS_GUIDE.md
 *_actual_user_data.json
 .tmp*
 _tmp*
+_*
+extracted_img_*
+test_output.txt
+sample_output.pdf

@@ -248,8 +248,42 @@ app.get('/dashboard', requireWebAuth, asyncHandler(async (req, res) => {
     maintenance = { enabled: false, allowedUsers: [] };
   }
 
-  res.render('dashboard', { stats, admins: enriched, maintenance, error: req.query.error });
+  // Get public mode setting
+  let publicMode = await Settings.findOne({ key: 'publicMode' }).lean();
+  if (!publicMode) {
+    publicMode = { enabled: false, value: 5 };
+  }
+
+  res.render('dashboard', { stats, admins: enriched, maintenance, publicMode, error: req.query.error });
 }));
+
+// ---------- Public Mode ----------
+app.get('/public', requireWebAuth, asyncHandler(async (req, res) => {
+  const trialUsers = await User.find({ role: 'trial' }).sort({ createdAt: -1 }).lean();
+  let publicMode = await Settings.findOne({ key: 'publicMode' }).lean();
+  if (!publicMode) {
+    publicMode = { enabled: false, value: 5 };
+  }
+  res.render('public', { trialUsers, publicMode });
+}));
+
+app.post('/public-mode/toggle', requireWebAuth, asyncHandler(async (req, res) => {
+  const { downloadLimit, action } = req.body;
+  let setting = await Settings.findOne({ key: 'publicMode' });
+  if (!setting) {
+    setting = new Settings({ key: 'publicMode', value: 5, enabled: false });
+  }
+
+  if (action === 'toggle') {
+    setting.enabled = !setting.enabled;
+  } else if (action === 'update_limit') {
+    setting.value = parseInt(downloadLimit) || 5;
+  }
+  
+  await setting.save();
+  res.redirect('/dashboard');
+}));
+
 app.get('/pending', requireWebAuth, asyncHandler(async (req, res) => {
   const pending = await User.find({ role: 'unauthorized' }).sort({ lastActive: -1 }).limit(50).lean();
   res.render('pending', { pending });
@@ -264,15 +298,25 @@ app.post('/maintenance/toggle', requireWebAuth, asyncHandler(async (req, res) =>
   setting.enabled = !setting.enabled;
   await setting.save();
 
-  // If disabled, automatically notify all active users
-  if (!setting.enabled) {
-    const activeUsers = await User.find({ role: { $ne: 'unauthorized' } }).select('telegramId language').lean();
-    for (const u of activeUsers) {
-      try {
-        const uLang = u.language || 'en';
-        await bot.telegram.sendMessage(u.telegramId, t('maintenance_off_msg', uLang), { parse_mode: 'Markdown' });
-      } catch (err) { }
-    }
+  // Notify all active users of the mode switch
+  const activeUsers = await User.find({ role: { $ne: 'unauthorized' } }).select('telegramId language role').lean();
+  for (const u of activeUsers) {
+    try {
+      const uLang = u.language || 'en';
+      if (!setting.enabled) {
+        // Turned OFF: Notify and restore the user's role-based menu keyboard
+        await bot.telegram.sendMessage(u.telegramId, t('maintenance_off_msg', uLang), { 
+          parse_mode: 'Markdown',
+          ...getReplyKeyboard(u.role, uLang)
+        });
+      } else {
+        // Turned ON: Notify users that maintenance is now active
+        await bot.telegram.sendMessage(u.telegramId, t('maintenance_mode_msg', uLang), { 
+          parse_mode: 'Markdown',
+          ...Markup.removeKeyboard() 
+        });
+      }
+    } catch (err) { }
   }
 
   res.redirect('/dashboard');
@@ -684,13 +728,13 @@ bot.use(async (ctx, next) => {
   try {
     const telegramId = ctx.from.id.toString();
 
-    // Rate limit check
-    const rateLimit = await checkUserRateLimit(telegramId, 30, 60000);
-    if (!rateLimit.allowed) {
-      const waitTime = rateLimit.resetTime ? Math.ceil((rateLimit.resetTime - Date.now()) / 1000) : 60;
-      const lang = ctx.state.user?.language || 'en';
-      return ctx.reply(t('error_rate_limit', lang).replace('{waitTime}', waitTime));
-    }
+    // Rate limit check (Temporarily disabled by request)
+    // const rateLimit = await checkUserRateLimit(telegramId, 30, 60000);
+    // if (!rateLimit.allowed) {
+    //   const waitTime = rateLimit.resetTime ? Math.ceil((rateLimit.resetTime - Date.now()) / 1000) : 60;
+    //   const lang = ctx.state.user?.language || 'en';
+    //   return ctx.reply(t('error_rate_limit', lang).replace('{waitTime}', waitTime));
+    // }
 
     // Single DB call: upsert profile + return current doc (replaces two separate queries)
     const user = await User.findOneAndUpdate(
@@ -708,20 +752,40 @@ bot.use(async (ctx, next) => {
       { upsert: true, new: true }
     );
 
-    if (!user || user.role === 'unauthorized') {
-      return ctx.reply(
-        `🚫Access Denied\n\nYour Telegram ID: ${telegramId}\n\nSend this ID to an admin or @yesno_101 to purchase access.\n\n\n🚫 መዳረሻ ተከልክሏል\n\nየቴሌግራም መለያ ቁጥርዎ: ${telegramId}\n\nአገልግሎቱን ለመግዛት ይህን መለያ ቁጥር ለAdmin ወይም ለ @yesno_101 ይላኩ።`,
-        Markup.removeKeyboard()
-      );
-    }
-
-    const lang = user.language || 'en';
+    const lang = user ? (user.language || 'en') : 'en';
 
     // Maintenance Mode Check
     const maintenance = await Settings.findOne({ key: 'maintenance' }).lean();
     if (maintenance && maintenance.enabled) {
       if (!maintenance.allowedUsers || !maintenance.allowedUsers.includes(telegramId)) {
         return ctx.reply(t('maintenance_mode_msg', lang), Markup.removeKeyboard());
+      }
+    }
+
+    // Public Mode Check
+    const publicMode = await Settings.findOne({ key: 'publicMode' }).lean();
+    const isTrialActive = publicMode && publicMode.enabled;
+    const trialLimit = publicMode ? (publicMode.value || 5) : 5;
+
+    if (!user || user.role === 'unauthorized') {
+      if (isTrialActive && user) {
+        user.role = 'trial';
+        await User.updateOne({ _id: user._id }, { role: 'trial' });
+      } else {
+        return ctx.reply(
+          `🚫Access Denied\n\nYour Telegram ID: ${telegramId}\n\nSend this ID to an admin or @yesno_101 to purchase access.\n\n\n🚫 መዳረሻ ተከልክሏል\n\nየቴሌግራም መለያ ቁጥርዎ: ${telegramId}\n\nአገልግሎቱን ለመግዛት ይህን መለያ ቁጥር ለAdmin ወይም ለ @yesno_101 ይላኩ።`,
+          Markup.removeKeyboard()
+        );
+      }
+    }
+
+    // Trial Mode Enforcement
+    if (user.role === 'trial') {
+      if (!isTrialActive || (user.downloadCount || 0) >= trialLimit) {
+        return ctx.reply(
+          `🚫Free Trial is Over\n\nYour Telegram ID: ${telegramId}\n\nContact @yesno_101 to purchase access.\n\n\n🚫 የነፃ ሙከራ ጊዜዎ አልቋል\n\nየቴሌግራም መለያ ቁጥርዎ: ${telegramId}\n\nአገልግሎቱን ለመግዛት ይህን መለያ ቁጥር ለ @yesno_101 ይላኩ።`,
+          Markup.removeKeyboard()
+        );
       }
     }
 

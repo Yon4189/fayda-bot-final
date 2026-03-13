@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Public Mode Users — Fayda Bot</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg: #0f0f12;
+            --surface: #18181c;
+            --surface2: #1f1f24;
+            --text: #e4e4e7;
+            --muted: #a1a1aa;
+            --accent: #6366f1;
+            --success: #22c55e;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --radius: 12px;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            line-height: 1.5;
+        }
+
+        .header {
+            background: var(--surface);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            padding: 0.75rem 1.5rem;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 1.5rem;
+        }
+
+        .back {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            font-size: 0.85rem;
+            font-weight: 500;
+            text-decoration: none;
+            background: rgba(255, 255, 255, 0.06);
+            color: var(--text);
+            transition: background 0.15s;
+        }
+
+        .back:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .card {
+            background: var(--surface);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: var(--radius);
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .card h2 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        .hint {
+            color: var(--muted);
+            font-size: 0.85rem;
+            margin-bottom: 1rem;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+        }
+
+        th {
+            text-align: left;
+            padding: 0.75rem;
+            color: var(--muted);
+            font-weight: 500;
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        td {
+            padding: 0.75rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+        }
+
+        tr:hover td {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        code {
+            font-size: 0.85em;
+            background: rgba(255, 255, 255, 0.06);
+            padding: 0.2rem 0.4rem;
+            border-radius: 4px;
+        }
+
+        .badge {
+            font-size: 0.75rem;
+            padding: 0.2rem 0.6rem;
+            border-radius: 999px;
+            font-weight: 500;
+        }
+
+        .badge.active {
+            background: rgba(34, 197, 94, 0.15);
+            color: var(--success);
+        }
+
+        .badge.inactive {
+            background: rgba(239, 68, 68, 0.15);
+            color: var(--danger);
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 1rem;
+            }
+
+            table,
+            thead,
+            tbody,
+            th,
+            td,
+            tr {
+                display: block;
+            }
+
+            thead {
+                display: none;
+            }
+
+            tbody tr {
+                background: var(--surface2);
+                border-radius: 10px;
+                padding: 1rem;
+                margin-bottom: 0.75rem;
+                border: 1px solid rgba(255, 255, 255, 0.04);
+            }
+
+            tbody tr:hover td {
+                background: transparent;
+            }
+
+            td {
+                padding: 0.25rem 0;
+                border: none;
+                font-size: 0.85rem;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+
+            td::before {
+                content: attr(data-label);
+                font-weight: 500;
+                color: var(--muted);
+                font-size: 0.7rem;
+                text-transform: uppercase;
+                letter-spacing: 0.04em;
+                flex-shrink: 0;
+                margin-right: 0.75rem;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <header class="header">
+        <a href="/dashboard" class="back">← Dashboard</a>
+    </header>
+    <main class="container">
+        <div class="card" style="border-color: <%= publicMode.enabled ? 'var(--success)' : 'rgba(255,255,255,0.06)' %>;">
+            <h2>🌍 Public Mode <span class="badge <%= publicMode.enabled ? 'active' : 'inactive' %>"><%= publicMode.enabled ? 'ON' : 'OFF' %></span></h2>
+            <p class="hint">Downloads limit per user: <strong><%= publicMode.value || 5 %></strong></p>
+        </div>
+
+        <div class="card">
+            <h2>👥 Trial Users (<%= trialUsers.length %>)</h2>
+            <p class="hint">Users who joined via public mode. When their limit is reached or public mode is turned OFF, they will be blocked until added as an Admin.</p>
+            <% if (trialUsers.length===0) { %>
+                <p>No trial users found.</p>
+            <% } else { %>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Username</th>
+                            <th>Telegram ID</th>
+                            <th>Downloads</th>
+                            <th>Joined At</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <% trialUsers.forEach(u=> { %>
+                            <tr>
+                                <td data-label="Name">
+                                    <%= u.firstName || '—' %>
+                                    <%= u.lastName || '' %>
+                                </td>
+                                <td data-label="Username">@<%= u.telegramUsername || '—' %></td>
+                                <td data-label="ID"><code><%= u.telegramId %></code></td>
+                                <td data-label="Downloads" style="<%= (u.downloadCount || 0) >= (publicMode.value || 5) ? 'color: var(--danger); font-weight: bold;' : 'color: var(--success); font-weight: bold;' %>">
+                                    <%= u.downloadCount || 0 %> / <%= publicMode.value || 5 %>
+                                </td>
+                                <td data-label="Joined At">
+                                    <%= u.createdAt ? new Date(u.createdAt).toLocaleDateString() : '—' %>
+                                </td>
+                            </tr>
+                        <% }) %>
+                    </tbody>
+                </table>
+            <% } %>
+        </div>
+    </main>
+</body>
+
+</html>
