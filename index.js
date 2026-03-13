@@ -824,7 +824,8 @@ bot.use(async (ctx, next) => {
     ctx.state.user = user;
     return next();
   } catch (error) {
-    logger.error('Authorization middleware error:', error);
+    console.error('CRITICAL ERROR in Authorization Middleware:', error.message, error.stack);
+    logger.error('Authorization middleware error:', { message: error.message, stack: error.stack });
     const lang = ctx.state.user?.language || 'en';
     return ctx.reply(t('error_generic', lang));
   }
@@ -2499,6 +2500,8 @@ async function startServer() {
                    !webhookDomain || 
                    (!process.env.RAILWAY_STATIC_URL && process.env.NODE_ENV !== 'production');
 
+    console.log('DEBUG: bot startup isLocal status:', isLocal, 'WebhookDomain:', webhookDomain);
+
     if (!isLocal && webhookDomain) {
       logger.info('🛜 High-Priority: Configuring Telegram webhook...');
       if (!webhookDomain.startsWith('http')) {
@@ -2517,13 +2520,18 @@ async function startServer() {
       logger.info('🔌 Local Environment: Starting bot with Long Polling...');
       try {
         // Clear any previous webhook so polling works
-        await bot.telegram.deleteWebhook();
-        bot.launch().catch(err => {
-          logger.error('❌ Bot launch failed:', err.message);
+        await bot.telegram.deleteWebhook({ drop_pending_updates: true });
+        logger.info('🗑️ Previous webhook deleted');
+        
+        bot.launch({
+          allowedUpdates: ['message', 'callback_query', 'my_chat_member']
+        }).then(() => {
+          logger.info('✅ Bot started via Long Polling');
+        }).catch(err => {
+          logger.error('❌ Bot launch failed (Async):', err);
         });
-        logger.info('✅ Bot started via Long Polling');
       } catch (pollErr) {
-        logger.error('⚠️ Polling start failed:', pollErr.message);
+        logger.error('⚠️ Polling setup failed (Sync):', pollErr);
       }
     }
 
