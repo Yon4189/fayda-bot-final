@@ -1,17 +1,29 @@
-// Environment validation and configuration
-const { validateEnv } = require('./config/env');
-validateEnv();
-
 // ---------- Keep process alive on unhandled errors (log and continue) ----------
 const logger = require('./utils/logger');
 process.on('unhandledRejection', (reason, promise) => {
+  console.error('CRITICAL: Unhandled Rejection at', reason);
   logger.error('Unhandled Rejection at', { reason, stack: reason?.stack });
 });
 process.on('uncaughtException', (err) => {
+  console.error('CRITICAL: Uncaught Exception', err.message);
   logger.error('Uncaught Exception', { message: err.message, stack: err.stack });
   // Don't exit - allow bot to keep serving other users (exit only on next fatal)
   // process.exit(1);
 });
+
+// Environment validation and configuration
+const { validateEnv } = require('./config/env');
+try {
+  logger.info('🔍 Validating environment variables...');
+  validateEnv();
+} catch (err) {
+  logger.error('❌ Environment validation failed:', err.message);
+  console.error('\n' + '='.repeat(50));
+  console.error('ERROR: Missing or invalid environment variables');
+  console.error(err.message);
+  console.error('='.repeat(50) + '\n');
+  process.exit(1);
+}
 
 const express = require('express');
 const crypto = require('crypto');
@@ -2436,12 +2448,20 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 // ---------- Start Server ----------
 async function startServer() {
+  logger.info('🚀 Initializing server startup...');
   try {
-    // Connect to database
+    // 1. Connect to database
+    logger.info('💾 Connecting to MongoDB...');
     await connectDB();
-    await migrateRoles();
+    logger.info('✅ MongoDB connected');
 
-    // C2/C3 Fix: Periodic cleanup for in-memory Maps to prevent memory leaks
+    // 2. Run migrations
+    logger.info('🔧 Running role migrations...');
+    await migrateRoles();
+    logger.info('✅ Migrations complete');
+
+    // 3. Setup periodic cleanup
+    logger.info('🧹 Setting up periodic cleanup tasks...');
     setInterval(() => {
       const now = Date.now();
       let cooldownCleared = 0;
@@ -2452,34 +2472,46 @@ async function startServer() {
         }
       }
       if (cooldownCleared > 0) logger.info(`Cleaned up ${cooldownCleared} expired verification cooldowns`);
+    }, 15 * 60 * 1000);
 
-      // We don't sweep activeDownloads by time directly
-      // because they might be legitimately long-running or properly cleaned by error catch blocks now.
-    }, 15 * 60 * 1000); // Check every 15 minutes
-    // Set webhook
+    // 4. Set webhook
+    logger.info('🛜 Configuring Telegram webhook...');
     const webhookPath = '/webhook';
-    // Ensure WEBHOOK_DOMAIN has https:// prefix
     let webhookDomain = process.env.WEBHOOK_DOMAIN || '';
     if (webhookDomain && !webhookDomain.startsWith('http')) {
       webhookDomain = `https://${webhookDomain}`;
       logger.warn(`⚠️ WEBHOOK_DOMAIN missing protocol, added https://`);
     }
     const webhookUrl = `${webhookDomain}${webhookPath}`;
-    await bot.telegram.setWebhook(webhookUrl);
-    app.use(bot.webhookCallback(webhookPath));
-
-    // Warn if WEBHOOK_DOMAIN looks like a placeholder
-    if (/your-app-name|example\.com|localhost/.test(process.env.WEBHOOK_DOMAIN || '')) {
-      logger.warn('⚠️ WEBHOOK_DOMAIN looks like a placeholder. Update it in your deployment Variables to your real URL (e.g. https://fayda-bot.onrender.com) or the bot will not receive messages.');
+    
+    try {
+      await bot.telegram.setWebhook(webhookUrl);
+      logger.info(`✅ Webhook set to: ${webhookUrl}`);
+    } catch (whErr) {
+      logger.error('❌ Failed to set webhook:', whErr.message);
+      if (process.env.NODE_ENV === 'production') throw whErr;
     }
 
+    app.use(bot.webhookCallback(webhookPath));
+
+    // 5. Check for placeholder domains
+    if (/your-app-name|example\.com|localhost/.test(process.env.WEBHOOK_DOMAIN || '')) {
+      logger.warn('⚠️ WEBHOOK_DOMAIN looks like a placeholder. Update it in your deployment Variables.');
+    }
+
+    // 6. Start Express
     const PORT = process.env.PORT || 3000;
     app.listen(PORT, () => {
       logger.info(`🚀 Server running on port ${PORT}`);
-      logger.info(`🤖 Webhook active at ${webhookUrl}`);
+      logger.info('⭐ Bot is ready and listening');
     });
+
   } catch (err) {
-    logger.error("❌ Failed to start server:", err);
+    logger.error("❌ FATAL: Failed to start server:", err);
+    console.error('\n' + '!'.repeat(50));
+    console.error('FATAL STARTUP ERROR');
+    console.error(err);
+    console.error('!'.repeat(50) + '\n');
     process.exit(1);
   }
 }

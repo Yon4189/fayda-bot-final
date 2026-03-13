@@ -21,23 +21,20 @@ function validateEnv() {
 
   if (missing.length > 0) {
     const msg = [
-      `Missing required environment variables: ${missing.join(', ')}.`,
-      'Add them in your deployment platform:',
-      '  Railway: Project → Variables tab',
-      '  Render: Dashboard → Your Service → Environment',
-      '  See ENV_SETUP.md for step-by-step instructions.'
+      `❌ Missing required environment variables: ${missing.join(', ')}.`,
+      'Please check your Railway dashboard or .env file.',
+      'See ENV_SETUP.md for instructions.'
     ].join('\n');
-    logger.error(`Missing required environment variables: ${missing.join(', ')}`);
     throw new Error(msg);
   }
 
   // Validate formats
   if (process.env.MONGODB_URI && !process.env.MONGODB_URI.startsWith('mongodb')) {
-    throw new Error('MONGODB_URI must be a valid MongoDB connection string');
+    throw new Error('❌ MONGODB_URI must start with "mongodb://" or "mongodb+srv://"');
   }
 
-  if (process.env.REDIS_URL && !process.env.REDIS_URL.startsWith('redis')) {
-    throw new Error('REDIS_URL must be a valid Redis connection string');
+  if (process.env.REDIS_URL && !(process.env.REDIS_URL.startsWith('redis') || process.env.REDIS_URL.startsWith('rediss'))) {
+    throw new Error('❌ REDIS_URL must start with "redis://" or "rediss://"');
   }
 
   logger.info('✅ Environment variables validated');
