@@ -3,84 +3,63 @@ const logger = require('./logger');
 
 class SolveCaptcha {
     constructor(apiKey) {
-        if (!apiKey) {
-            throw new Error('SolveCaptcha API key is required');
-        }
         this.apiKey = apiKey;
-        this.pollIntervalMs = 5000; // 5 seconds as per docs
+        this.baseUrl = 'https://2captcha.com';
     }
 
-    /**
-     * Drop-in replacement for 2captcha's solver.recaptcha()
-     * @param {string} siteKey - The Google reCAPTCHA sitekey
-     * @param {string} pageUrl - The URL of the page containing the captcha
-     * @param {object} options - Additional options like { version: 'v3', action: 'verify', min_score: 0.5 }
-     * @returns {Promise<{ data: string }>} - Matches the { data: token } format of the previous library
-     */
     async recaptcha(siteKey, pageUrl, options = {}) {
         try {
-            // 1. Submit the CAPTCHA to SolveCaptcha
-            const inParams = new URLSearchParams();
-            inParams.append('key', this.apiKey);
-            inParams.append('method', 'userrecaptcha');
-            inParams.append('googlekey', siteKey);
-            inParams.append('pageurl', pageUrl);
-            inParams.append('json', '1');
-
-            if (options.version === 'v3') {
-                inParams.append('version', 'v3');
-                if (options.action) {
-                    inParams.append('action', options.action);
+            const response = await axios.get(`${this.baseUrl}/in.php`, {
+                params: {
+                    key: this.apiKey,
+                    method: 'userrecaptcha',
+                    googlekey: siteKey,
+                    pageurl: pageUrl,
+                    json: 1,
+                    ...options
                 }
-                if (options.min_score) {
-                    inParams.append('min_score', options.min_score);
-                }
-            }
-
-            const inRes = await axios.post('https://api.solvecaptcha.com/in.php', inParams.toString(), {
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
             });
 
-            const inData = inRes.data;
-
-            if (inData.status !== 1) {
-                throw new Error(`SolveCaptcha submit failed: ${inData.request || JSON.stringify(inData)}`);
+            if (response.data.status !== 1) {
+                throw new Error(`2Captcha error: ${response.data.request}`);
             }
 
-            const captchaId = inData.request;
-            // logger.info(`Submitted reCAPTCHA to SolveCaptcha, ID: ${captchaId}`);
-
-            // 2. Poll for the result
-            // Initial timeout reduced to 10 seconds for speed
-            await new Promise(resolve => setTimeout(resolve, 10000));
-
-            const maxAttempts = 24; // ~2 minutes maximum polling
-            for (let attempt = 0; attempt < maxAttempts; attempt++) {
-                const resUrl = `https://api.solvecaptcha.com/res.php?key=${this.apiKey}&action=get&id=${captchaId}&json=1`;
-                const outRes = await axios.get(resUrl);
-                const outData = outRes.data;
-
-                if (outData.status === 1) {
-                    // Solved successfully
-                    return { data: outData.request };
-                } else if (outData.request === 'CAPCHA_NOT_READY') {
-                    // Wait 5 seconds and poll again
-                    await new Promise(resolve => setTimeout(resolve, this.pollIntervalMs));
-                } else if (outData.request === 'ERROR_TOO_MUCH_REQUESTS') {
-                    // Hit polling limit - back off safely instead of failing
-                    logger.warn(`SolveCaptcha rate limited (ERROR_TOO_MUCH_REQUESTS). Backing off for ID: ${captchaId}`);
-                    await new Promise(resolve => setTimeout(resolve, this.pollIntervalMs + 2000));
-                } else {
-                    // Some other error
-                    throw new Error(`SolveCaptcha poll failed: ${outData.request}`);
-                }
-            }
-
-            throw new Error(`SolveCaptcha timed out waiting for solution for ID: ${captchaId}`);
+            const captchaId = response.data.request;
+            return this.pollResult(captchaId);
         } catch (error) {
-            logger.error('SolveCaptcha interaction error', { message: error.message });
+            logger.error('Captcha solve request failed:', error.message);
             throw error;
         }
+    }
+
+    async pollResult(captchaId, attempts = 20, interval = 5000) {
+        for (let i = 0; i < attempts; i++) {
+            try {
+                const response = await axios.get(`${this.baseUrl}/res.php`, {
+                    params: {
+                        key: this.apiKey,
+                        action: 'get',
+                        id: captchaId,
+                        json: 1
+                    }
+                });
+
+                if (response.data.status === 1) {
+                    return { success: true, data: response.data.request };
+                }
+
+                if (response.data.request !== 'CAPCHA_NOT_READY') {
+                    throw new Error(`2Captcha error: ${response.data.request}`);
+                }
+
+                await new Promise(resolve => setTimeout(resolve, interval));
+            } catch (error) {
+                if (error.message.includes('CAPCHA_NOT_READY')) continue;
+                logger.error('Captcha polling failed:', error.message);
+                throw error;
+            }
+        }
+        throw new Error('Captcha solve timeout');
     }
 }
 

@@ -26,7 +26,6 @@ Create a `.env` file with the following variables:
 ```env
 # Bot Configuration
 BOT_TOKEN=your_telegram_bot_token
-CAPTCHA_KEY=your_2captcha_api_key
 
 # Database
 MONGODB_URI=mongodb://localhost:27017/fayda_bot
@@ -207,8 +206,10 @@ If `ADMIN_USER` and `ADMIN_PASS` are set, a web dashboard is available at `/logi
 - Input validation for all user inputs
 - Rate limiting to prevent abuse
 - Secure session management
-- Environment variable validation
-- SQL injection protection (MongoDB)
+- `FAYDA_APP_API_KEY`: API Key for the mobile app (bypasses Captcha).
+- `CAPTCHA_KEY`: 2Captcha API Key (required as fallback if `FAYDA_APP_API_KEY` is not provided).
+- `CAPTCHA_SITE_KEY`: (Optional) Site key for Resident Portal Captcha.
+- `MONGODB_URI`: Connection string for MongoDB.
 - XSS protection
 
 ## Troubleshooting

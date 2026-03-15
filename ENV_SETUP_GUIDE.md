@@ -6,16 +6,32 @@ Step-by-step guide to get every variable correct for **local** and **Railway** d
 
 ## Quick checklist
 
-| Variable        | Where to get it                    | Format / rules                          |
+| Variable        | Source                              | Description                             |
 |----------------|-------------------------------------|-----------------------------------------|
-| BOT_TOKEN      | Telegram @BotFather                 | `123456789:ABC...`                      |
-| CAPTCHA_KEY    | 2captcha.com                        | 32-char API key                         |
-| MONGODB_URI    | MongoDB Atlas or Railway MongoDB    | `mongodb://` or `mongodb+srv://`        |
-| REDIS_URL      | Upstash or Railway Redis            | `redis://` or `rediss://`               |
-| SESSION_SECRET | You generate                        | Long random string                      |
-| WEBHOOK_DOMAIN | Your Railway URL                    | `https://xxx.up.railway.app` (no slash) |
+| BOT_TOKEN      | @BotFather                          | Your bot token                          |
+| MONGODB_URI    | MongoDB Atlas                       | Database connection string              |
+| REDIS_URL      | Upstash / Railway                   | Redis connection string                 |
+| SESSION_SECRET | Random string                       | For dashboard login security            |
+| WEBHOOK_DOMAIN | Railway / Ngrok                     | Your application URL                    |
+| CAPTCHA_KEY    | 2Captcha                            | 2Captcha API Key (for captcha solving)  |
+| FAYDA_APP_API_KEY | Admin-provided                   | Mobile API Key (No captcha needed)      |
 
 ---
+
+### Step 2: 2Captcha API Key (Fallback)
+
+If you do not have a `FAYDA_APP_API_KEY`, the bot will use the Resident Portal API which requires solving captchas.
+
+1.  Create an account at [2Captcha](https://2captcha.com/).
+2.  Add funds (a small amount is enough for many downloads).
+3.  Copy your **API Key** from the dashboard.
+
+| Variable | Description | Example |
+| :--- | :--- | :--- |
+| `BOT_TOKEN` | Telegram Bot Token from BotFather | `123456:ABC-DEF...` |
+| `CAPTCHA_KEY` | 2Captcha API Key | `41c7b8...` |
+| `FAYDA_APP_API_KEY` | (Optional) Mobile App Token | `ey...` |
+| `MONGODB_URI` | MongoDB Connection String | `mongodb+srv://...` |
 
 ## 1. BOT_TOKEN (Telegram)
 
@@ -32,16 +48,7 @@ Step-by-step guide to get every variable correct for **local** and **Railway** d
 
 ---
 
-## 2. CAPTCHA_KEY (2Captcha)
-
-1. Go to **https://2captcha.com** and sign up.
-2. Open **Dashboard** → **API Key**.
-3. Copy the API key (32 characters, hex).
-4. In `.env`:
-   ```env
-   CAPTCHA_KEY=your_actual_api_key_here
-   ```
-   Used to solve reCAPTCHA on the Fayda site.
+## 2. Databases (MongoDB & Redis)
 
 ---
 
@@ -182,12 +189,12 @@ Wrong:
 ## Example: full .env for local
 
 ```env
-BOT_TOKEN=8251825611:AAH7mlvidD-jA65FQxO5dKNDfq2ZjLzm7pM
-CAPTCHA_KEY=your_2captcha_key_here
-MONGODB_URI=mongodb+srv://fayda_user:YourPassword@cluster0.xxxxx.mongodb.net/fayda_bot?retryWrites=true&w=majority
-REDIS_URL=rediss://default:YourUpstashPassword@us1-xxxxx.upstash.io:6379
-SESSION_SECRET=your_32_or_more_character_random_string
-WEBHOOK_DOMAIN=https://idfayda-bot-production.up.railway.app
+BOT_TOKEN=...
+MONGODB_URI=...
+REDIS_URL=...
+SESSION_SECRET=...
+WEBHOOK_DOMAIN=...
+FAYDA_APP_API_KEY=...
 PORT=3000
 NODE_ENV=development
 ```
@@ -202,12 +209,12 @@ In Railway → your **app service** → **Variables**, add (with your real value
 
 | Name           | Value                                                                 |
 |----------------|-----------------------------------------------------------------------|
-| BOT_TOKEN      | (from BotFather)                                                      |
-| CAPTCHA_KEY    | (from 2captcha)                                                       |
-| MONGODB_URI    | (full Atlas or Railway MongoDB URL)                                   |
-| REDIS_URL      | (full Upstash or Railway Redis URL)                                   |
-| SESSION_SECRET | (your long random string)                                             |
-| WEBHOOK_DOMAIN | https://idfayda-bot-production.up.railway.app                        |
+| BOT_TOKEN      | (generated from BotFather)                                            |
+| MONGODB_URI    | (from MongoDB Cloud)                                                  |
+| REDIS_URL      | (from Upstash/Railway)                                                |
+| SESSION_SECRET | (any random string)                                                   |
+| WEBHOOK_DOMAIN | (your Railway app public domain)                                       |
+| FAYDA_APP_API_KEY | (provided separately)                                              |
 | NODE_ENV       | production                                                            |
 
 Do **not** commit `.env` to git. Use `.env.example` as a template and this guide to fill it correctly.

@@ -33,7 +33,7 @@ const MongoStore = require('connect-mongo');
 const FaydaAppClient = require('./utils/faydaAppClient');
 const faydaApp = process.env.FAYDA_APP_API_KEY ? new FaydaAppClient(process.env.FAYDA_APP_API_KEY) : null;
 if (!faydaApp) {
-  logger.warn('⚠️ FAYDA_APP_API_KEY is missing. Download feature will be disabled.');
+  logger.warn('⚠️ FAYDA_APP_API_KEY is missing. Using CAPTCHA Fallback flow.');
 }
 
 const { buildFaydaPdf } = require('./utils/pdfBuilder');
@@ -49,6 +49,7 @@ const { connectDB, disconnectDB } = require('./config/database');
 const { apiLimiter, checkUserRateLimit } = require('./utils/rateLimiter');
 const { validateFaydaId, validateOTP, escMd, displayName } = require('./utils/validators');
 const { parsePdfResponse } = require('./utils/pdfHelper');
+const SolveCaptcha = require('./utils/solveCaptcha');
 const { t } = require('./utils/i18n');
 const { getReplyKeyboard, getPanelTitle, paginate, getMainMenu } = require('./utils/menu');
 const { migrateRoles } = require('./utils/migrateRoles');
@@ -82,8 +83,11 @@ const VERIFICATION_COOLDOWN_MS = 2 * 60 * 1000; // 2 minutes between verificatio
 const activeDownloads = new Map(); // telegramId → true
 // Per-user verification cooldown — prevents OTP flood on Fayda API
 const verificationCooldown = new Map(); // telegramId → timestamp of last failure
-
-// Legacy captcha maps removed.
+// Lazy pre-solve: captcha solve starts when user taps Download
+const pendingCaptchas = new Map(); // telegramId → Promise<string>
+// Deferred verification: captcha+verify runs in background
+const pendingVerifications = new Map(); // telegramId → Promise<{success, token, error, timer}>
+// Global lock for OTP processing
 const processingOTPs = new Set(); // Prevent duplicate OTP processing
 
 // ---------- Express App ----------
@@ -685,7 +689,10 @@ app.use((err, req, res, _next) => {
 });
 
 // ---------- Constants ----------
+const SITE_KEY = process.env.CAPTCHA_SITE_KEY || "6LcSAIwqAAAAAGsZElBPqf63_0fUtp17idU-SQYC";
+const RECAPTCHA_OPTS = { version: 'v3', action: 'verify', min_score: 0.5 };
 const HEADERS = fayda.HEADERS;
+const solver = new SolveCaptcha(process.env.CAPTCHA_KEY);
 
 const PREFER_QUEUE_PDF = process.env.PREFER_QUEUE_PDF === 'true' || process.env.PREFER_QUEUE_PDF === '1';
 
@@ -965,7 +972,14 @@ async function handleDownload(ctx, isInline) {
   ctx.session.step = 'ID';
 
   // If a captcha is not already solving (e.g. they didn't come through /start or BTN.START), start it now
-  // Captcha pre-solve removed - no longer needed for mobile app API.
+  
+  // Captcha pre-solve (Fallback for Resident Portal API)
+  if (!process.env.FAYDA_APP_API_KEY && !pendingCaptchas.has(userId)) {
+    pendingCaptchas.set(userId, solver.recaptcha(SITE_KEY, 'https://resident.fayda.et/', RECAPTCHA_OPTS).then(r => r.data).catch(err => {
+      logger.warn('Pre-solve captcha failed', { error: err.message });
+      return null;
+    }));
+  }
 
   const text = t('enter_id', lang);
   if (isInline) {
@@ -2208,60 +2222,101 @@ bot.on('text', async (ctx) => {
         return ctx.reply(t('error_rate_limit', lang).replace('{waitTime}', waitSec));
       }
 
-      if (!faydaApp) {
-        return ctx.reply('❌ **Download feature is currently disabled.**\n\nAdministrative action required: `FAYDA_APP_API_KEY` is not configured in the server environment.', { parse_mode: 'Markdown' });
-      }
-
       activeDownloads.set(userId, true);
+      ctx.session.id = validation.value;
+      ctx.session.verificationMethod = validation.type || 'FCN';
+      ctx.session.step = 'OTP';
+      ctx.session._verifyStartTime = Date.now();
 
-      const statusMsg = await ctx.reply(t('looking_up', lang) || 'Looking up ID...');
-
+      const otpPromptMsg = await ctx.reply(t('enter_otp', lang));
       const timer = new DownloadTimer(userId);
-      timer.startStep('idVerification');
 
-      try {
-        const idNumber = validation.value;
-        const idType = validation.type || 'FCN'; // The API might expect 'FIN' instead of 'FCN' for some numbers
+      // Branch: Mobile APP API vs Resident Portal (Captcha) API
+      if (process.env.FAYDA_APP_API_KEY) {
+        // --- Modern Flow: Mobile App API ---
+        (async () => {
+          try {
+            timer.startStep('idVerification');
+            const response = await faydaApp.sendOtp(validation.value, validation.type || 'FCN');
+            timer.endStep('idVerification');
+            timer.setPhase('idPhaseMs', Date.now() - timer.flowStart);
 
-        // Call the new mobile app API
-        const response = await faydaApp.sendOtp(idNumber, idType);
-        timer.endStep('idVerification');
-        timer.setPhase('idPhaseMs', Date.now() - timer.flowStart);
+            if (response && response.success) {
+              ctx.session.transactionId = response.transactionId;
+              ctx.session._timer = timer.toSession();
+              verificationCooldown.delete(userId);
+              await ctx.telegram.editMessageText(ctx.chat.id, otpPromptMsg.message_id, null, `✅ ${t('enter_otp', lang)}`, { parse_mode: 'Markdown' }).catch(() => { });
+            }
+          } catch (error) {
+            timer.endStep('idVerification');
+            timer.report('id_verification_failed');
+            verificationCooldown.set(userId, Date.now());
+            activeDownloads.delete(userId);
+            ctx.session.step = null;
+            const rawMsg = error.message || '';
+            const userMsg = /too many|limit|wait|429/i.test(rawMsg) ? t('error_rate_limit', lang).replace('{waitTime}', 'few') : t('id_error', lang);
+            await ctx.telegram.editMessageText(ctx.chat.id, otpPromptMsg.message_id, null, userMsg).catch(() => { });
+          }
+        })();
+      } else {
+        // --- Legacy Flow: Resident Portal API (Captcha) ---
+        const verifyPromise = (async () => {
+          let lastErr;
+          let apiWasCalled = false;
+          for (let attempt = 1; attempt <= 2; attempt++) {
+            try {
+              timer.startStep('captchaSolve');
+              let captchaToken = null;
+              if (attempt === 1 && pendingCaptchas.has(userId)) {
+                captchaToken = await pendingCaptchas.get(userId);
+                pendingCaptchas.delete(userId);
+              }
+              if (!captchaToken) {
+                const result = await solver.recaptcha(SITE_KEY, 'https://resident.fayda.et/', RECAPTCHA_OPTS);
+                captchaToken = result.data;
+              }
+              timer.endStep('captchaSolve');
 
-        if (response && response.success) {
-          // Success! Move to OTP step
-          ctx.session.id = idNumber;
-          ctx.session.verificationMethod = idType;
-          ctx.session.transactionId = response.transactionId; // Save for verify-otp
-          ctx.session.step = 'OTP';
-          ctx.session._verifyStartTime = Date.now();
-          ctx.session._timer = timer.toSession();
+              timer.startStep('idVerification');
+              apiWasCalled = true;
+              const res = await fayda.api.post('/verify', {
+                idNumber: validation.value,
+                verificationMethod: validation.type || 'FCN',
+                captchaValue: captchaToken
+              }, { timeout: 35000 });
+              timer.endStep('idVerification');
 
-          verificationCooldown.delete(userId);
-          
-          await ctx.telegram.editMessageText(ctx.chat.id, statusMsg.message_id, null,
-            `✅ ${t('enter_otp', lang)}`,
-            { parse_mode: 'Markdown' }
-          );
-        }
-      } catch (error) {
-        timer.endStep('idVerification');
-        timer.report('id_verification_failed');
-        verificationCooldown.set(userId, Date.now());
-        activeDownloads.delete(userId);
-        ctx.session = ctx.session || {}; 
-        ctx.session.step = null;
+              verificationCooldown.delete(userId);
+              timer.setPhase('idPhaseMs', Date.now() - timer.flowStart);
+              return { success: true, token: res.data.token, timer };
+            } catch (e) {
+              timer.endStep('captchaSolve');
+              timer.endStep('idVerification');
+              lastErr = e;
+              if (e.response?.status >= 400 && e.response?.status < 500) break;
+            }
+          }
+          if (apiWasCalled) verificationCooldown.set(userId, Date.now());
+          const rawMsg = lastErr?.response?.data?.message || lastErr?.message || '';
+          timer.report('id_verification_failed');
+          return { success: false, error: rawMsg, timer };
+        })();
 
-        const rawMsg = error.message || '';
-        const userMsg = /too many|limit|wait|429/i.test(rawMsg)
-          ? t('error_rate_limit', lang).replace('{waitTime}', 'few')
-          : /not found|invalid/i.test(rawMsg) ? t('id_invalid', lang)
-            : t('id_error', lang);
-            
-        await ctx.telegram.editMessageText(ctx.chat.id, statusMsg.message_id, null, userMsg);
-        logger.error(`sendOtp failed for user ${userId}`, { error: rawMsg });
+        verifyPromise.then(result => {
+          if (pendingVerifications.get(userId) !== verifyPromise) return;
+          if (result.success) {
+            ctx.telegram.editMessageText(ctx.chat.id, otpPromptMsg.message_id, null, `✅ ${t('enter_otp', lang)}`, { parse_mode: 'Markdown' }).catch(() => { });
+          } else {
+            const rawMsg = result.error || '';
+            const userMsg = /too many|limit|wait/i.test(rawMsg) ? t('error_rate_limit', lang).replace('{waitTime}', 'few') : t('id_error', lang);
+            ctx.telegram.editMessageText(ctx.chat.id, otpPromptMsg.message_id, null, userMsg).catch(() => { });
+            activeDownloads.delete(userId);
+            ctx.session.step = null;
+          }
+        }).catch(() => { });
+
+        pendingVerifications.set(userId, verifyPromise);
       }
-
       return;
     }
 
@@ -2292,108 +2347,129 @@ bot.on('text', async (ctx) => {
       }
       const statusMsg = await ctx.reply(t('otp_verifying', lang));
 
-      // Use the transactionId saved from ID step.
-      const transactionId = state.transactionId;
-      if (!transactionId) {
-        state.processingOTP = false;
-        activeDownloads.delete(userId);
-        ctx.session = ctx.session || {}; ctx.session.step = null;
-        return ctx.reply(t('error_session', lang));
-      }
+      // Branch: Mobile APP API vs Resident Portal (Captcha) API
+      if (process.env.FAYDA_APP_API_KEY) {
+        // --- Modern Flow: Mobile App API ---
+        const transactionId = state.transactionId;
+        if (!transactionId) {
+          state.processingOTP = false;
+          activeDownloads.delete(userId);
+          ctx.session.step = null;
+          return ctx.reply(t('error_session', lang));
+        }
 
-      // Everything from OTP validation onward is inside try-catch-finally
-      // so that processingOTP is ALWAYS reset
-      let timer;
-      try {
-        timer = DownloadTimer.fromSession(state._timer, userId);
-        timer.startStep('otpValidation');
-        
-        // 1. Call mobile API to verify OTP
-        let otpResponse;
+        let timer;
         try {
-          otpResponse = await faydaApp.verifyOtp(validation.value, transactionId, state.id);
-        } catch (e) {
+          timer = DownloadTimer.fromSession(state._timer, userId);
+          timer.startStep('otpValidation');
+          const otpResponse = await faydaApp.verifyOtp(validation.value, transactionId, state.id);
           timer.endStep('otpValidation');
-          
+          state.otpRetryCount = 0;
+          await ctx.telegram.editMessageText(ctx.chat.id, statusMsg.message_id, null, t('otp_verified_fetching', lang)).catch(() => { });
+
+          timer.startStep('pdfConversion');
+          const { userData, images } = otpResponse;
+          const pdfBuffer = await buildFaydaPdf(userData, images);
+          timer.endStep('pdfConversion');
+
+          const safeName = (userData.fullName_eng || 'Fayda_Card').replace(/[^a-zA-Z0-9]/g, '_');
+          timer.startStep('telegramUpload');
+          await ctx.replyWithDocument({ source: pdfBuffer, filename: `${safeName}.pdf` }, { caption: t('digital_id_ready', lang) });
+          timer.endStep('telegramUpload');
+
+          await incrementUserDownload(userId);
+          ctx.session.step = null;
+          activeDownloads.delete(userId);
+          if (state._verifyStartTime) timer.setPhase('otpPhaseMs', Date.now() - state._verifyStartTime);
+          timer.report('success');
+        } catch (e) {
+          if (timer) timer.endStep('otpValidation');
           const isInvalidOtp = /invalid otp/i.test(e.message) || (e.response && e.response.status === 400);
           if (isInvalidOtp) {
             const retryCount = state.otpRetryCount || 0;
             if (retryCount < 2) {
               state.otpRetryCount = retryCount + 1;
               state.processingOTP = false;
-              logger.warn('Invalid OTP entered, allowing retry', { userId, attempt: retryCount + 1 });
               await ctx.telegram.editMessageText(ctx.chat.id, statusMsg.message_id, null, t('otp_retry', lang)).catch(() => { });
-              return;
-            } else {
-              logger.warn('Invalid OTP on final attempt, cancelling', { userId });
-              state.processingOTP = false;
-              state.otpRetryCount = 0;
-              activeDownloads.delete(userId);
-              ctx.session = ctx.session || {}; ctx.session.step = null;
-              await ctx.telegram.editMessageText(ctx.chat.id, statusMsg.message_id, null, `${t('otp_fail', lang)} ${t('download_cancelled', lang)}`).catch(() => { });
               return;
             }
           }
-          throw e; // Non-invalid-OTP error
+          logger.error("OTP Error (Mobile):", e.message);
+          activeDownloads.delete(userId);
+          ctx.session.step = null;
+          await ctx.reply(`❌ ${e.message || 'Verification failed.'}`);
+        } finally {
+          processingOTPs.delete(userId);
+          state.processingOTP = false;
         }
-        
-        timer.endStep('otpValidation');
-        state.otpRetryCount = 0; // Reset on success
-        
-        await ctx.telegram.editMessageText(ctx.chat.id, statusMsg.message_id, null, t('otp_verified_fetching', lang)).catch(() => { });
-
-        // 2. Build PDF locally using the extracted data
-        timer.startStep('pdfConversion');
-        const { userData, images } = otpResponse;
-        const pdfBuffer = await buildFaydaPdf(userData, images);
-        timer.endStep('pdfConversion');
-
-        const safeName = (userData.fullName_eng || 'Fayda_Card').replace(/[^a-zA-Z0-9]/g, '_');
-        const filename = `${safeName}.pdf`;
-
-        // 3. Send back to user
-        timer.startStep('telegramUpload');
-        await ctx.replyWithDocument({
-          source: pdfBuffer,
-          filename: filename
-        }, { caption: t('digital_id_ready', lang) });
-        timer.endStep('telegramUpload');
-
-        await incrementUserDownload(userId);
-        ctx.session = ctx.session || {}; ctx.session.step = null;
-        activeDownloads.delete(userId);
-        
-        // Final timer reporting
-        if (state._verifyStartTime) {
-          timer.setPhase('otpPhaseMs', Date.now() - state._verifyStartTime);
-        }
-        timer.report('success');
-
-      } catch (e) {
-        if (timer) timer.endStep('otpValidation');
-        logger.error("OTP/PDF Error:", {
-          error: e.message,
-          stack: e.stack
-        });
-        
-        if (timer) {
-          if (state._verifyStartTime) timer.setPhase('otpPhaseMs', Date.now() - state._verifyStartTime);
-          timer.report('failed');
-        }
-        
+      } else {
+        // --- Legacy Flow: Resident Portal API (Captcha) ---
         try {
-          let userErrMsg = 'Unknown error. Please try again.';
-          if (e.message) userErrMsg = e.message;
-          await ctx.reply(`❌ ${userErrMsg}`);
-        } catch (replyError) {
-          logger.error('Failed to send error message:', replyError);
+          let verifyResult;
+          if (pendingVerifications.has(userId)) {
+            verifyResult = await pendingVerifications.get(userId);
+            pendingVerifications.delete(userId);
+          } else {
+            logger.error('No pending verification found for user', { userId });
+            state.processingOTP = false;
+            activeDownloads.delete(userId);
+            ctx.session.step = null;
+            return ctx.reply(t('error_session', lang));
+          }
+
+          if (!verifyResult.success) {
+            state.processingOTP = false;
+            activeDownloads.delete(userId);
+            ctx.session.step = null;
+            return ctx.reply(verifyResult.error || t('id_error', lang));
+          }
+
+          const timer = verifyResult.timer;
+          state.tempJwt = verifyResult.token;
+          const authHeader = { ...HEADERS, 'Authorization': `Bearer ${state.tempJwt}` };
+
+          timer.startStep('otpValidation');
+          const otpResponse = await fayda.api.post('/validateOtp', {
+            otp: validation.value,
+            uniqueId: state.id,
+            verificationMethod: state.verificationMethod || 'FCN'
+          }, { headers: authHeader, timeout: 35000 });
+          timer.endStep('otpValidation');
+
+          const { signature, uin, fullName } = otpResponse.data;
+          await ctx.telegram.editMessageText(ctx.chat.id, statusMsg.message_id, null, t('otp_verified_fetching', lang)).catch(() => { });
+
+          // Start PDF fetch
+          timer.startStep('pdfFetch');
+          const pdfResponse = await fayda.api.post('/printableCredentialRoute', { uin, signature }, {
+            headers: authHeader,
+            responseType: 'text',
+            timeout: 25000
+          });
+          timer.endStep('pdfFetch');
+
+          timer.startStep('pdfConversion');
+          const { buffer: pdfBuffer } = parsePdfResponse(pdfResponse.data);
+          timer.endStep('pdfConversion');
+
+          const safeName = (fullName?.eng || 'Fayda_Card').replace(/[^a-zA-Z0-9]/g, '_');
+          timer.startStep('telegramUpload');
+          await ctx.replyWithDocument({ source: pdfBuffer, filename: `${safeName}.pdf` }, { caption: t('digital_id_ready', lang) });
+          timer.endStep('telegramUpload');
+
+          await incrementUserDownload(userId);
+          ctx.session.step = null;
+          activeDownloads.delete(userId);
+          timer.report('success');
+        } catch (e) {
+          logger.error("OTP Error (Legacy):", e.message);
+          activeDownloads.delete(userId);
+          ctx.session.step = null;
+          await ctx.reply(`❌ ${e.response?.data?.message || e.message || 'Download failed.'}`);
+        } finally {
+          processingOTPs.delete(userId);
+          state.processingOTP = false;
         }
-        
-        ctx.session = ctx.session || {}; ctx.session.step = null;
-        activeDownloads.delete(userId);
-      } finally {
-        processingOTPs.delete(userId);
-        if (state) state.processingOTP = false;
       }
       return;
     }

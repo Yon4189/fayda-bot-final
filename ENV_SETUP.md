@@ -8,14 +8,14 @@ Your app is failing because **environment variables are not set** in your deploy
 
 Add these **exact names** and your **real values**:
 
-| Variable         | Where to get it |
-|------------------|-----------------|
-| `BOT_TOKEN`      | Telegram @BotFather → /newbot → copy token |
-| `CAPTCHA_KEY`    | https://2captcha.com → dashboard → API key |
-| `MONGODB_URI`    | MongoDB Atlas or Railway MongoDB → connection string |
-| `REDIS_URL`      | Upstash or Railway Redis → connection URL |
-| `SESSION_SECRET` | Any random string (e.g. `openssl rand -hex 32`) |
-| `WEBHOOK_DOMAIN` | Your app URL, e.g. `https://fayda-bot-production.up.railway.app` |
+| Variable         | Where to get it | Description                             |
+|------------------|-----------------|-----------------------------------------|
+| `BOT_TOKEN`      | Telegram @BotFather                        | Your bot's unique token                 |
+| `MONGODB_URI`    | MongoDB Atlas / Local                       | Connection string (starts with `mongodb://`) |
+| `REDIS_URL`      | Redis Cloud / Local                         | Connection string (starts with `redis://`) |
+| `SESSION_SECRET` | Anything long & random                      | For web dashboard sessions              |
+| `WEBHOOK_DOMAIN` | Your deployment URL                         | e.g. `https://fayda-bot.up.railway.app` |
+| `FAYDA_APP_API_KEY` | Admin provided                      | Key for direct Fayda API access         |
 
 ---
 
@@ -28,14 +28,12 @@ Add these **exact names** and your **real values**:
 5. Add each variable:
 
 ```
-BOT_TOKEN=8251825611:AAH7mlvidD-jA65FQxO5dKNDfq2ZjLzm7pM
-CAPTCHA_KEY=your_2captcha_key
-MONGODB_URI=mongodb+srv://user:pass@cluster.mongodb.net/fayda_bot
-REDIS_URL=rediss://default:password@host.upstash.io:6379
-SESSION_SECRET=your_random_secret_here
-WEBHOOK_DOMAIN=https://YOUR-ACTUAL-RAILWAY-URL.up.railway.app
-NODE_ENV=production
-PORT=3000
+BOT_TOKEN=your_token_here
+MONGODB_URI=mongodb://...
+REDIS_URL=redis://...
+SESSION_SECRET=long_random_string
+WEBHOOK_DOMAIN=https://your-app.railway.app
+FAYDA_APP_API_KEY=your_fayda_api_key_here
 ```
 
 6. Replace every value with your real data.  
