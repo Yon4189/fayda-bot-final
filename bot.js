@@ -21,11 +21,15 @@ function redisSessionMiddleware() {
     const key = ctx.from ? `session:${ctx.from.id}` : null;
     if (!key) return next();
 
-    // Load session from Redis
+    // Load session from Redis (with 5s timeout)
     try {
-      const data = await redisSession.get(key);
+      console.log(`DEBUG: [${new Date().toLocaleTimeString()}] Loading session for user ${ctx.from.id}...`);
+      const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Redis Timeout')), 5000));
+      const data = await Promise.race([redisSession.get(key), timeoutPromise]);
+      console.log(`DEBUG: [${new Date().toLocaleTimeString()}] Session loaded for user ${ctx.from.id}`);
       ctx.session = data ? JSON.parse(data) : {};
     } catch (e) {
+      console.log(`DEBUG: [${new Date().toLocaleTimeString()}] Session load FAILED/TIMEOUT for ${ctx.from.id}: ${e.message}`);
       ctx.session = {};
     }
 
@@ -43,7 +47,7 @@ function redisSessionMiddleware() {
         await redisSession.set(key, after, 'EX', SESSION_TTL);
       }
     } catch (e) {
-      logger.warn('Redis session save/delete failed:', e.message);
+      console.log('DEBUG: Redis session save/delete failed:', e.message);
     }
   };
 }

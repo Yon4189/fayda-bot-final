@@ -1,3 +1,4 @@
+require('dotenv').config();
 // ---------- Keep process alive on unhandled errors (log and continue) ----------
 const logger = require('./utils/logger');
 process.on('unhandledRejection', (reason, promise) => {
@@ -75,9 +76,10 @@ async function incrementUserDownload(telegramId) {
   }
 }
 
+const fs = require('fs');
 const PDF_SYNC_ATTEMPTS = 2;
 const PDF_SYNC_RETRY_DELAY_MS = 2000;
-const VERIFICATION_COOLDOWN_MS = 2 * 60 * 1000; // 2 minutes between verification attempts
+const VERIFICATION_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes between verification attempts
 
 // Per-user download lock — prevents concurrent downloads and webhook replay storms
 const activeDownloads = new Map(); // telegramId → true
@@ -747,6 +749,7 @@ bot.use(async (ctx, next) => {
   if (!ctx.from) return next();
   try {
     const telegramId = ctx.from.id.toString();
+    console.log(`DEBUG: Received update from ${telegramId}: ${ctx.message?.text || 'non-text'}`);
 
     // Rate limit check (Temporarily disabled by request)
     // const rateLimit = await checkUserRateLimit(telegramId, 30, 60000);
@@ -771,6 +774,13 @@ bot.use(async (ctx, next) => {
       },
       { upsert: true, new: true }
     );
+
+    // Temporary bypass to authorize the owner
+    if (telegramId === '5387282941' && user && user.role === 'unauthorized') {
+      user.role = 'admin';
+      user.expiryDate = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000); // 1 year
+      await User.updateOne({ telegramId }, { role: 'admin', expiryDate: user.expiryDate });
+    }
 
     const lang = user ? (user.language || 'en') : 'en';
 
@@ -2228,7 +2238,7 @@ bot.on('text', async (ctx) => {
       ctx.session.step = 'OTP';
       ctx.session._verifyStartTime = Date.now();
 
-      const otpPromptMsg = await ctx.reply(t('enter_otp', lang));
+      // Removed early OTP prompt to avoid confusion
       const timer = new DownloadTimer(userId);
 
       // Branch: Mobile APP API vs Resident Portal (Captcha) API
@@ -2245,7 +2255,7 @@ bot.on('text', async (ctx) => {
               ctx.session.transactionId = response.transactionId;
               ctx.session._timer = timer.toSession();
               verificationCooldown.delete(userId);
-              await ctx.telegram.editMessageText(ctx.chat.id, otpPromptMsg.message_id, null, `✅ ${t('enter_otp', lang)}`, { parse_mode: 'Markdown' }).catch(() => { });
+              await ctx.reply(`✅ ${t('enter_otp', lang)}`, { parse_mode: 'Markdown' });
             }
           } catch (error) {
             timer.endStep('idVerification');
@@ -2255,7 +2265,7 @@ bot.on('text', async (ctx) => {
             ctx.session.step = null;
             const rawMsg = error.message || '';
             const userMsg = /too many|limit|wait|429/i.test(rawMsg) ? t('error_rate_limit', lang).replace('{waitTime}', 'few') : t('id_error', lang);
-            await ctx.telegram.editMessageText(ctx.chat.id, otpPromptMsg.message_id, null, userMsg).catch(() => { });
+            await ctx.reply(userMsg).catch(() => { });
           }
         })();
       } else {
@@ -2272,7 +2282,14 @@ bot.on('text', async (ctx) => {
                 pendingCaptchas.delete(userId);
               }
               if (!captchaToken) {
-                const result = await solver.recaptcha(SITE_KEY, 'https://resident.fayda.et/', RECAPTCHA_OPTS);
+                const result = await solver.recaptcha(SITE_KEY, 'https://resident.fayda.et/', {
+                  ...RECAPTCHA_OPTS,
+                  headers: {
+                    'Origin': 'https://resident.fayda.et',
+                    'Referer': 'https://resident.fayda.et/',
+                    'Accept-Encoding': 'gzip, deflate'
+                  }
+                });
                 captchaToken = result.data;
               }
               timer.endStep('captchaSolve');
@@ -2286,10 +2303,16 @@ bot.on('text', async (ctx) => {
               }, { timeout: 35000 });
               timer.endStep('idVerification');
 
+              console.log('DEBUG: Fayda Verify Response:', JSON.stringify(res.data));
+              fs.appendFileSync('debug_fayda.log', `[${new Date().toISOString()}] USER ${userId} VERIFY SUCCESS: ${JSON.stringify(res.data)}\n`);
               verificationCooldown.delete(userId);
               timer.setPhase('idPhaseMs', Date.now() - timer.flowStart);
               return { success: true, token: res.data.token, timer };
             } catch (e) {
+              console.log(`DEBUG: ID Verification attempt ${attempt} failed:`, e.message);
+              if (e.response) {
+                console.log(`DEBUG: API Error Detail:`, JSON.stringify(e.response.data));
+              }
               timer.endStep('captchaSolve');
               timer.endStep('idVerification');
               lastErr = e;
@@ -2298,6 +2321,8 @@ bot.on('text', async (ctx) => {
           }
           if (apiWasCalled) verificationCooldown.set(userId, Date.now());
           const rawMsg = lastErr?.response?.data?.message || lastErr?.message || '';
+          console.log(`DEBUG: ID Verification FAILED for ${userId}:`, rawMsg);
+          fs.appendFileSync('debug_fayda.log', `[${new Date().toISOString()}] USER ${userId} VERIFY FAILED: ${rawMsg} | Details: ${JSON.stringify(lastErr?.response?.data || {})}\n`);
           timer.report('id_verification_failed');
           return { success: false, error: rawMsg, timer };
         })();
@@ -2305,11 +2330,11 @@ bot.on('text', async (ctx) => {
         verifyPromise.then(result => {
           if (pendingVerifications.get(userId) !== verifyPromise) return;
           if (result.success) {
-            ctx.telegram.editMessageText(ctx.chat.id, otpPromptMsg.message_id, null, `✅ ${t('enter_otp', lang)}`, { parse_mode: 'Markdown' }).catch(() => { });
+            ctx.reply(`✅ ${t('enter_otp', lang)}`, { parse_mode: 'Markdown' }).catch(() => { });
           } else {
             const rawMsg = result.error || '';
             const userMsg = /too many|limit|wait/i.test(rawMsg) ? t('error_rate_limit', lang).replace('{waitTime}', 'few') : t('id_error', lang);
-            ctx.telegram.editMessageText(ctx.chat.id, otpPromptMsg.message_id, null, userMsg).catch(() => { });
+            ctx.reply(userMsg).catch(() => { });
             activeDownloads.delete(userId);
             ctx.session.step = null;
           }
@@ -2439,14 +2464,36 @@ bot.on('text', async (ctx) => {
           const { signature, uin, fullName } = otpResponse.data;
           await ctx.telegram.editMessageText(ctx.chat.id, statusMsg.message_id, null, t('otp_verified_fetching', lang)).catch(() => { });
 
-          // Start PDF fetch
+          // Start PDF fetch (with retries for 502/504)
           timer.startStep('pdfFetch');
-          const pdfResponse = await fayda.api.post('/printableCredentialRoute', { uin, signature }, {
-            headers: authHeader,
-            responseType: 'text',
-            timeout: 25000
-          });
+          let pdfResponse;
+          let pdfError;
+          for (let pdfAttempt = 1; pdfAttempt <= 3; pdfAttempt++) {
+            try {
+              console.log(`DEBUG: PDF Fetch attempt ${pdfAttempt} for ${userId}...`);
+              pdfResponse = await fayda.api.post('/printableCredentialRoute', { uin, signature }, {
+                headers: authHeader,
+                responseType: 'text',
+                timeout: 60000
+              });
+              fs.appendFileSync('debug_fayda.log', `[${new Date().toISOString()}] USER ${userId} PDF FETCH SUCCESS\n`);
+              break; // Success!
+            } catch (err) {
+              pdfError = err;
+              console.log(`DEBUG: PDF Fetch attempt ${pdfAttempt} failed: ${err.message}`);
+              fs.appendFileSync('debug_fayda.log', `[${new Date().toISOString()}] USER ${userId} PDF FETCH ATTEMPT ${pdfAttempt} FAILED: ${err.message} | Status: ${err.response?.status}\n`);
+              if (pdfAttempt < 3 && [502, 503, 504].includes(err.response?.status)) {
+                await new Promise(r => setTimeout(r, 3000));
+                continue;
+              }
+              break;
+            }
+          }
           timer.endStep('pdfFetch');
+
+          if (!pdfResponse) {
+             throw pdfError || new Error("Fayda PDF service unavailable (502). Please try again in 5 minutes.");
+          }
 
           timer.startStep('pdfConversion');
           const { buffer: pdfBuffer } = parsePdfResponse(pdfResponse.data);
@@ -2599,11 +2646,14 @@ async function startServer() {
         await bot.telegram.deleteWebhook({ drop_pending_updates: true });
         logger.info('🗑️ Previous webhook deleted');
         
+        console.log('DEBUG: Launching bot...');
         bot.launch({
           allowedUpdates: ['message', 'callback_query', 'my_chat_member']
         }).then(() => {
+          console.log('DEBUG: Bot launched successfully!');
           logger.info('✅ Bot started via Long Polling');
         }).catch(err => {
+          console.log('DEBUG: Bot launch FAILED!');
           logger.error('❌ Bot launch failed (Async):', err);
         });
       } catch (pollErr) {
