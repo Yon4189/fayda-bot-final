@@ -8,8 +8,12 @@ process.on('unhandledRejection', (reason, promise) => {
 process.on('uncaughtException', (err) => {
   console.error('CRITICAL: Uncaught Exception', err.message);
   logger.error('Uncaught Exception', { message: err.message, stack: err.stack });
-  // Don't exit - allow bot to keep serving other users (exit only on next fatal)
-  // process.exit(1);
+  
+  // If we haven't even started listening yet, we MUST exit
+  if (err.code === 'EADDRINUSE' || !isInitialized) {
+    logger.error('Fatal startup error, exiting.');
+    process.exit(1);
+  }
 });
 
 // Environment validation and configuration
@@ -33,7 +37,11 @@ const session = require('express-session');
 const MongoStore = require('connect-mongo');
 const FaydaAppClient = require('./utils/faydaAppClient');
 const faydaApp = process.env.FAYDA_APP_API_KEY ? new FaydaAppClient(process.env.FAYDA_APP_API_KEY) : null;
-if (!faydaApp) {
+const SIMULATION_MODE = process.env.SIMULATION_MODE === 'true';
+
+if (SIMULATION_MODE) {
+  logger.info('🚀 SIMULATION_MODE is ENABLED. All Fayda API calls will be mocked.');
+} else if (!faydaApp) {
   logger.warn('⚠️ FAYDA_APP_API_KEY is missing. Using CAPTCHA Fallback flow.');
 }
 
@@ -2241,6 +2249,23 @@ bot.on('text', async (ctx) => {
       // Removed early OTP prompt to avoid confusion
       const timer = new DownloadTimer(userId);
 
+      // --- SIMULATION MODE Branch ---
+      if (SIMULATION_MODE) {
+        (async () => {
+          logger.info(`[Simulation] Starting ID verification for user ${userId}`);
+          timer.startStep('idVerification');
+          await new Promise(r => setTimeout(r, 1500)); // Simulate network lag
+          timer.endStep('idVerification');
+          timer.setPhase('idPhaseMs', Date.now() - timer.flowStart);
+
+          ctx.session.transactionId = 'sim-transaction-' + Date.now();
+          ctx.session._timer = timer.toSession();
+          verificationCooldown.delete(userId);
+          await ctx.reply(`✅ (Simulation) ${t('enter_otp', lang)}`, { parse_mode: 'Markdown' });
+        })();
+        return;
+      }
+
       // Branch: Mobile APP API vs Resident Portal (Captcha) API
       if (process.env.FAYDA_APP_API_KEY) {
         // --- Modern Flow: Mobile App API ---
@@ -2371,6 +2396,50 @@ bot.on('text', async (ctx) => {
         return ctx.reply(`❌ ${validation.error}.`);
       }
       const statusMsg = await ctx.reply(t('otp_verifying', lang));
+
+      // --- SIMULATION MODE Branch ---
+      if (SIMULATION_MODE) {
+        let timer;
+        try {
+          timer = DownloadTimer.fromSession(state._timer, userId);
+          logger.info(`[Simulation] Verifying OTP for user ${userId}`);
+          timer.startStep('otpValidation');
+          await new Promise(r => setTimeout(r, 1500)); // Simulate verification
+          timer.endStep('otpValidation');
+          
+          await ctx.telegram.editMessageText(ctx.chat.id, statusMsg.message_id, null, t('otp_verified_fetching', lang)).catch(() => { });
+
+          timer.startStep('pdfFetch');
+          await new Promise(r => setTimeout(r, 1500)); // Simulate fetch
+          timer.endStep('pdfFetch');
+
+          timer.startStep('pdfConversion');
+          // Use sample file
+          let pdfPath = fs.existsSync('sample_output.pdf') ? 'sample_output.pdf' : 'assets/fayda_template.pdf';
+          const pdfBuffer = fs.readFileSync(pdfPath);
+          timer.endStep('pdfConversion');
+
+          timer.startStep('telegramUpload');
+          await ctx.replyWithDocument({ source: pdfBuffer, filename: `Simulation_Fayda_ID.pdf` }, { caption: `✅ (Simulation) ${t('digital_id_ready', lang)}` });
+          timer.endStep('telegramUpload');
+
+          // NOTE: Simulation mode does NOT increment downloadCount.
+          // Only real ID downloads should count toward user statistics.
+          ctx.session.step = null;
+          activeDownloads.delete(userId);
+          if (state._verifyStartTime) timer.setPhase('otpPhaseMs', Date.now() - state._verifyStartTime);
+          timer.report('success_simulation');
+        } catch (e) {
+          logger.error("[Simulation] OTP Error:", e.message);
+          activeDownloads.delete(userId);
+          ctx.session.step = null;
+          await ctx.reply(`❌ Simulation error: ${e.message}`);
+        } finally {
+          processingOTPs.delete(userId);
+          state.processingOTP = false;
+        }
+        return;
+      }
 
       // Branch: Mobile APP API vs Resident Portal (Captcha) API
       if (process.env.FAYDA_APP_API_KEY) {
