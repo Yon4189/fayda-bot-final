@@ -31,6 +31,7 @@ try {
 }
 
 const express = require('express');
+const axios = require('axios');
 const crypto = require('crypto');
 const helmet = require('helmet');
 const session = require('express-session');
@@ -65,6 +66,7 @@ const { migrateRoles } = require('./utils/migrateRoles');
 const pdfQueue = require('./queue');
 const { safeResponseForLog } = require('./utils/logger');
 const { DownloadTimer } = require('./utils/timer');
+const { convertToPrintableCard } = require('./utils/cardConverter');
 
 async function incrementUserDownload(telegramId) {
   const userDoc = await User.findOne({ telegramId });
@@ -784,7 +786,8 @@ bot.use(async (ctx, next) => {
     );
 
     // Temporary bypass to authorize the owner
-    if (telegramId === '5387282941' && user && user.role === 'unauthorized') {
+    const superAdminId = process.env.SUPER_ADMIN_ID;
+    if (superAdminId && telegramId === superAdminId && user && user.role === 'unauthorized') {
       user.role = 'admin';
       user.expiryDate = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000); // 1 year
       await User.updateOne({ telegramId }, { role: 'admin', expiryDate: user.expiryDate });
@@ -2420,7 +2423,11 @@ bot.on('text', async (ctx) => {
           timer.endStep('pdfConversion');
 
           timer.startStep('telegramUpload');
-          await ctx.replyWithDocument({ source: pdfBuffer, filename: `Simulation_Fayda_ID.pdf` }, { caption: `✅ (Simulation) ${t('digital_id_ready', lang)}` });
+          const convertBtn = Markup.inlineKeyboard([[Markup.button.callback(t('btn_convert_card', lang), 'convert_last_pdf')]]);
+          await ctx.replyWithDocument({ source: pdfBuffer, filename: `Simulation_Fayda_ID.pdf` }, { 
+            caption: `✅ (Simulation) ${t('digital_id_ready', lang)}`,
+            ...convertBtn
+          });
           timer.endStep('telegramUpload');
 
           // NOTE: Simulation mode does NOT increment downloadCount.
@@ -2468,8 +2475,15 @@ bot.on('text', async (ctx) => {
 
           const safeName = (userData.fullName_eng || 'Fayda_Card').replace(/[^a-zA-Z0-9]/g, '_');
           timer.startStep('telegramUpload');
-          await ctx.replyWithDocument({ source: pdfBuffer, filename: `${safeName}.pdf` }, { caption: t('digital_id_ready', lang) });
+          const convertBtn = Markup.inlineKeyboard([[Markup.button.callback(t('btn_convert_card', lang), 'convert_last_pdf')]]);
+          await ctx.replyWithDocument({ source: pdfBuffer, filename: `${safeName}.pdf` }, { 
+            caption: t('digital_id_ready', lang),
+            ...convertBtn
+          });
           timer.endStep('telegramUpload');
+          
+          // Save buffer for immediate conversion if button is clicked
+          ctx.session.lastPdfBuffer = pdfBuffer.toString('base64');
 
           await incrementUserDownload(userId);
           ctx.session.step = null;
@@ -2570,8 +2584,15 @@ bot.on('text', async (ctx) => {
 
           const safeName = (fullName?.eng || 'Fayda_Card').replace(/[^a-zA-Z0-9]/g, '_');
           timer.startStep('telegramUpload');
-          await ctx.replyWithDocument({ source: pdfBuffer, filename: `${safeName}.pdf` }, { caption: t('digital_id_ready', lang) });
+          const convertBtn = Markup.inlineKeyboard([[Markup.button.callback(t('btn_convert_card', lang), 'convert_last_pdf')]]);
+          await ctx.replyWithDocument({ source: pdfBuffer, filename: `${safeName}.pdf` }, { 
+            caption: t('digital_id_ready', lang),
+            ...convertBtn
+          });
           timer.endStep('telegramUpload');
+          
+          // Save buffer for immediate conversion
+          ctx.session.lastPdfBuffer = pdfBuffer.toString('base64');
 
           await incrementUserDownload(userId);
           ctx.session.step = null;
@@ -2596,6 +2617,72 @@ bot.on('text', async (ctx) => {
       status: error.response?.status,
       response: safeResponseForLog(error.response?.data)
     });
+    // Safety net: clean up ALL state if an error escapes inner catches
+    activeDownloads.delete(ctx.from?.id.toString());
+    if (ctx.session) {
+      ctx.session.step = null;
+      ctx.session.processingOTP = false;
+    }
+    const lang = ctx.state.user?.language || 'en';
+    ctx.reply(t('error_generic', lang)).catch(() => { });
+  }
+});
+
+// ---------- PDF Card Conversion Handlers ----------
+
+async function handlePdfToCard(ctx, pdfBuffer, originalName, lang) {
+  const statusMsg = await ctx.reply('⏳ ' + (lang === 'am' ? 'ወደ ካርድ በመቀየር ላይ...' : 'Converting to Card...'));
+  try {
+    const cardPdfBuffer = await convertToPrintableCard(pdfBuffer);
+    const fileName = originalName.replace(/\.[^/.]+$/, "") + "_Card.pdf";
+    await ctx.replyWithDocument(
+      { source: cardPdfBuffer, filename: fileName },
+      { caption: '✅ ' + (lang === 'am' ? 'የካርድ ህትመት ዝግጁ ነው!' : 'Printable card is ready!') }
+    );
+    await ctx.telegram.deleteMessage(ctx.chat.id, statusMsg.message_id).catch(() => {});
+  } catch (err) {
+    logger.error('Conversion error:', err);
+    await ctx.telegram.editMessageText(ctx.chat.id, statusMsg.message_id, null, '❌ ' + (lang === 'am' ? 'ለመቀየር አልተቻለም። እባክዎ ትክክለኛ የፋይዳ PDF መሆኑን ያረጋግጡ።' : 'Failed to convert. Please ensure it is a valid Fayda PDF.'));
+  }
+}
+
+bot.action('convert_last_pdf', async (ctx) => {
+  try {
+    await ctx.answerCbQuery();
+    const lang = ctx.state.user?.language || 'en';
+    const base64Pdf = ctx.session?.lastPdfBuffer;
+    
+    if (!base64Pdf) {
+      return ctx.reply(lang === 'am' ? '❌ ይቅርታ፣ የመጨረሻውን PDF ማግኘት አልተቻለም። እባክዎ PDF ፋይሉን እንደገና ይላኩ።' : '❌ Sorry, could not find the last PDF. Please upload the PDF file again.');
+    }
+
+    const pdfBuffer = Buffer.from(base64Pdf, 'base64');
+    await handlePdfToCard(ctx, pdfBuffer, 'Fayda_ID.pdf', lang);
+  } catch (error) {
+    logger.error('Action convert_last_pdf error:', error);
+  }
+});
+
+bot.on('document', async (ctx) => {
+  try {
+    const doc = ctx.message.document;
+    const lang = ctx.state.user?.language || 'en';
+
+    if (doc.mime_type !== 'application/pdf') {
+      return; // Ignore non-PDF documents
+    }
+
+    const fileLink = await ctx.telegram.getFileLink(doc.file_id);
+    const response = await axios.get(fileLink.href, { responseType: 'arraybuffer' });
+    const pdfBuffer = Buffer.from(response.data);
+
+    await handlePdfToCard(ctx, pdfBuffer, doc.file_name || 'Fayda_ID.pdf', lang);
+  } catch (error) {
+    logger.error('Document handler error:', error);
+    const lang = ctx.state.user?.language || 'en';
+    ctx.reply(t('error_generic', lang)).catch(() => {});
+  }
+});
     // Safety net: clean up ALL state if an error escapes inner catches (C3)
     const uid = ctx.from?.id?.toString();
     if (uid) {
