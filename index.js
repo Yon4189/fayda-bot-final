@@ -813,8 +813,9 @@ bot.use(async (ctx, next) => {
         user.role = 'trial';
         await User.updateOne({ _id: user._id }, { role: 'trial' });
       } else {
+        const adminContact = process.env.ADMIN_CONTACT || '@your_admin_handle';
         return ctx.reply(
-          `🚫Access Denied\n\nYour Telegram ID: ${telegramId}\n\nSend this ID to an admin or @yesno_101 to purchase access.\n\n\n🚫 መዳረሻ ተከልክሏል\n\nየቴሌግራም መለያ ቁጥርዎ: ${telegramId}\n\nአገልግሎቱን ለመግዛት ይህን መለያ ቁጥር ለAdmin ወይም ለ @yesno_101 ይላኩ።`,
+          `🚫Access Denied\n\nYour Telegram ID: ${telegramId}\n\nSend this ID to an admin or ${adminContact} to purchase access.\n\n\n🚫 መዳረሻ ተከልክሏል\n\nየቴሌግራም መለያ ቁጥርዎ: ${telegramId}\n\nአገልግሎቱን ለመግዛት ይህን መለያ ቁጥር ለAdmin ወይም ለ ${adminContact} ይላኩ።`,
           Markup.removeKeyboard()
         );
       }
@@ -823,8 +824,9 @@ bot.use(async (ctx, next) => {
     // Trial Mode Enforcement
     if (user.role === 'trial') {
       if (!isTrialActive || (user.downloadCount || 0) >= trialLimit) {
+        const adminContact = process.env.ADMIN_CONTACT || '@your_admin_handle';
         return ctx.reply(
-          `🚫Free Trial is Over\n\nYour Telegram ID: ${telegramId}\n\nContact @yesno_101 to purchase access.\n\n\n🚫 የነፃ ሙከራ ጊዜዎ አልቋል\n\nየቴሌግራም መለያ ቁጥርዎ: ${telegramId}\n\nአገልግሎቱን ለመግዛት ይህን መለያ ቁጥር ለ @yesno_101 ይላኩ።`,
+          `🚫Free Trial is Over\n\nYour Telegram ID: ${telegramId}\n\nContact ${adminContact} to purchase access.\n\n\n🚫 የነፃ ሙከራ ጊዜዎ አልቋል\n\nየቴሌግራም መለያ ቁጥርዎ: ${telegramId}\n\nአገልግሎቱን ለመግዛት ይህን መለያ ቁጥር ለ ${adminContact} ይላኩ።`,
           Markup.removeKeyboard()
         );
       }
