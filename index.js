@@ -2333,8 +2333,10 @@ bot.on('text', async (ctx) => {
               }, { timeout: 35000 });
               timer.endStep('idVerification');
 
-              console.log('DEBUG: Fayda Verify Response:', JSON.stringify(res.data));
-              fs.appendFileSync('debug_fayda.log', `[${new Date().toISOString()}] USER ${userId} VERIFY SUCCESS: ${JSON.stringify(res.data)}\n`);
+              console.log('DEBUG: Fayda Verify Response Status:', res.status);
+              console.log('DEBUG: Fayda Verify Response Data:', JSON.stringify(res.data));
+              console.log('DEBUG: Fayda Verify Response Headers:', JSON.stringify(res.headers));
+              fs.appendFileSync('debug_fayda.log', `[${new Date().toISOString()}] USER ${userId} VERIFY SUCCESS | Status: ${res.status} | Body: ${JSON.stringify(res.data)} | Headers: ${JSON.stringify(res.headers)}\n`);
               verificationCooldown.delete(userId);
               timer.setPhase('idPhaseMs', Date.now() - timer.flowStart);
               return { success: true, token: res.data.token, timer };
@@ -2471,9 +2473,10 @@ bot.on('text', async (ctx) => {
           await ctx.telegram.editMessageText(ctx.chat.id, statusMsg.message_id, null, t('otp_verified_fetching', lang)).catch(() => { });
 
           timer.startStep('pdfConversion');
-          const { userData, images } = otpResponse;
-          const pdfBuffer = await buildFaydaPdf(userData, images);
-          timer.endStep('pdfConversion');
+          // Save buffer and data for immediate conversion
+          ctx.session.lastPdfBuffer = pdfBuffer.toString('base64');
+          ctx.session.lastUserData = userData;
+          ctx.session.lastImages = images;
 
           const safeName = (userData.fullName_eng || 'Fayda_Card').replace(/[^a-zA-Z0-9]/g, '_');
           timer.startStep('telegramUpload');
@@ -2483,9 +2486,6 @@ bot.on('text', async (ctx) => {
             ...convertBtn
           });
           timer.endStep('telegramUpload');
-          
-          // Save buffer for immediate conversion if button is clicked
-          ctx.session.lastPdfBuffer = pdfBuffer.toString('base64');
 
           await incrementUserDownload(userId);
           ctx.session.step = null;
@@ -2584,6 +2584,11 @@ bot.on('text', async (ctx) => {
           const { buffer: pdfBuffer } = parsePdfResponse(pdfResponse.data);
           timer.endStep('pdfConversion');
 
+          // Save buffer (we don't have structured userData/images here easily from legacy, will need extraction)
+          ctx.session.lastPdfBuffer = pdfBuffer.toString('base64');
+          ctx.session.lastUserData = { fullName_eng: fullName?.eng, fullName_amh: fullName?.amh, fcn: uin };
+          ctx.session.lastImages = null;
+
           const safeName = (fullName?.eng || 'Fayda_Card').replace(/[^a-zA-Z0-9]/g, '_');
           timer.startStep('telegramUpload');
           const convertBtn = Markup.inlineKeyboard([[Markup.button.callback(t('btn_convert_card', lang), 'convert_last_pdf')]]);
@@ -2592,9 +2597,6 @@ bot.on('text', async (ctx) => {
             ...convertBtn
           });
           timer.endStep('telegramUpload');
-          
-          // Save buffer for immediate conversion
-          ctx.session.lastPdfBuffer = pdfBuffer.toString('base64');
 
           await incrementUserDownload(userId);
           ctx.session.step = null;
@@ -2632,10 +2634,10 @@ bot.on('text', async (ctx) => {
 
 // ---------- PDF Card Conversion Handlers ----------
 
-async function handlePdfToCard(ctx, pdfBuffer, originalName, lang) {
+async function handlePdfToCard(ctx, pdfBuffer, originalName, lang, userData = null, images = null) {
   const statusMsg = await ctx.reply('⏳ ' + (lang === 'am' ? 'ወደ ካርድ በመቀየር ላይ...' : 'Converting to Card...'));
   try {
-    const cardPdfBuffer = await convertToPrintableCard(pdfBuffer);
+    const cardPdfBuffer = await convertToPrintableCard(pdfBuffer, userData, images);
     const fileName = originalName.replace(/\.[^/.]+$/, "") + "_Card.pdf";
     await ctx.replyWithDocument(
       { source: cardPdfBuffer, filename: fileName },
@@ -2653,13 +2655,15 @@ bot.action('convert_last_pdf', async (ctx) => {
     await ctx.answerCbQuery();
     const lang = ctx.state.user?.language || 'en';
     const base64Pdf = ctx.session?.lastPdfBuffer;
+    const userData = ctx.session?.lastUserData;
+    const images = ctx.session?.lastImages;
     
     if (!base64Pdf) {
       return ctx.reply(lang === 'am' ? '❌ ይቅርታ፣ የመጨረሻውን PDF ማግኘት አልተቻለም። እባክዎ PDF ፋይሉን እንደገና ይላኩ።' : '❌ Sorry, could not find the last PDF. Please upload the PDF file again.');
     }
 
     const pdfBuffer = Buffer.from(base64Pdf, 'base64');
-    await handlePdfToCard(ctx, pdfBuffer, 'Fayda_ID.pdf', lang);
+    await handlePdfToCard(ctx, pdfBuffer, 'Fayda_ID.pdf', lang, userData, images);
   } catch (error) {
     logger.error('Action convert_last_pdf error:', error);
   }
@@ -2685,21 +2689,7 @@ bot.on('document', async (ctx) => {
     ctx.reply(t('error_generic', lang)).catch(() => {});
   }
 });
-    // Safety net: clean up ALL state if an error escapes inner catches (C3)
-    const uid = ctx.from?.id?.toString();
-    if (uid) {
-      activeDownloads.delete(uid);
-      processingOTPs.delete(uid);
-    }
-    if (ctx.session) {
-      ctx.session.step = null;
-      ctx.session.processingOTP = false;
-      ctx.session.otpRetryCount = 0;
-    }
-    const lang = ctx.state.user?.language || 'en';
-    ctx.reply(t('error_generic', lang)).catch(() => { });
-  }
-});
+
 
 // ---------- Graceful Shutdown ----------
 async function gracefulShutdown(signal) {
